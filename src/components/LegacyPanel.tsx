@@ -26,7 +26,7 @@ export function LegacyPanel({ client, snapshot, busy, lang, run, review, invalid
   }
   const filtered = catalogue?.assets.filter(a => `${a.name} ${a.symbol} ${a.type} ${a.address}`.toLowerCase().includes(query.toLowerCase())) ?? [];
   return <section className="panel" onChange={invalidate}>
-    <p className="eyebrow">06 / {t("LEGADO", "LEGACY")}</p><h2>{t("Retire de uma cesta antiga.", "Withdraw from a legacy basket.")}</h2>
+    <p className="eyebrow">{t("LEGADO", "LEGACY")}</p><h2>{t("Retire de uma cesta antiga.", "Withdraw from a legacy basket.")}</h2>
     <p>{t("A Safe deve ser proprietária do NFT. Retire uma camada de investimento por vez, sem converter os ativos.", "The Safe must own the NFT. Exit one investment layer at a time without converting assets.")}</p>
     <details><summary>{t("Encontrar NFTs desta Safe", "Find this Safe's NFTs")}</summary>
       <label className="field"><span>{t("ID inicial", "Starting ID")}</span><input disabled={busy} value={start.toString()} inputMode="numeric" onChange={e => { if (/^\d*$/.test(e.target.value)) setStart(BigInt(e.target.value || "0")); }} /></label>

@@ -4,12 +4,15 @@ import { chains, chainById } from "./catalog/chains";
 import { products } from "./catalog/products";
 import { address, parseAmount, publicClient, same } from "./core/client";
 import { inspectAccount } from "./core/inspect";
-import { connectedWallet, recoveryAction, safeAction, sendAction, transferCall, approveSafeProposal, safeReceiptSucceeded } from "./core/actions";
+import { recoveryAction, safeAction, sendAction, transferCall, approveSafeProposal, safeReceiptSucceeded } from "./core/actions";
 import { verifyTokenReceipt, type ReceiptExpectation } from "./core/receipts";
 import { erc20Abi } from "./core/abi";
 import { inspectCard, enqueueCard, readQueue, dispatchCard, skipExpiredCard, queueStatus, type CardDelay, type QueuedCall } from "./core/card";
 import { inspectPosition, redeemPosition, claimCovered, settleCovered, claimStader, claimStakingRewards, recoverCoveredDeposit, findCoveredRequests, type Position } from "./core/investments";
-import { useWallets } from "./components/useWallets";
+import { useAccount } from "wagmi";
+import { ConnectKitProvider } from "connectkit";
+import { WalletButton } from "./components/WalletProvider";
+import { PrepareWallet } from "./components/PrepareWallet";
 import { StockTokens } from "./components/StockTokens";
 import { LegacyPanel } from "./components/LegacyPanel";
 import { CallDetails } from "./components/CallDetails";
@@ -17,7 +20,6 @@ import { discoverMamo, withdrawMamo, type MamoPosition } from "./core/mamo";
 import { readProgress, saveProgress, downloadProgress, parseProgress } from "./core/progress";
 import type { AccountSnapshot, PreparedAction } from "./core/types";
 
-declare global { interface Window { ethereum?: EIP1193Provider } }
 const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`;
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="field"><span>{label}</span>{children}</label>;
@@ -32,10 +34,11 @@ export function App() {
   const [account, setAccount] = useState("");
   const [snapshot, setSnapshot] = useState<AccountSnapshot>();
   const [progress, setProgress] = useState(readProgress);
-  const wallets = useWallets();
-  const [walletId, setWalletId] = useState("");
-  const [walletAddress, setWalletAddress] = useState<Address>();
-  const [tab, setTab] = useState("account");
+  const connection = useAccount();
+  const walletAddress = connection.address;
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [accessPath, setAccessPath] = useState<"owner" | "recovery">("recovery");
+  const [tab, setTab] = useState("transfer");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -64,20 +67,22 @@ export function App() {
   useEffect(() => { try { saveProgress(progress); } catch { setError("Local progress could not be saved. Export it before closing this page."); } }, [progress]);
   useEffect(() => { setReview(undefined); setReviewed(false); }, [destination, token, amount, owner, requestId, cardAddress]);
   useEffect(() => { document.documentElement.lang = lang === "pt" ? "pt-BR" : "en"; }, [lang]);
-  const [demo, setDemo] = useState<EIP1193Provider>();
+  const [demo, setDemo] = useState(false);
   useEffect(() => {
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
     if (import.meta.env.DEV && ["127.0.0.1", "localhost"].includes(location.hostname) && new URLSearchParams(location.search).get("demo") === "1") {
-      void import("./devProvider").then(m => setDemo(m.demoProvider));
+      void import("./devProvider").then(m => { if (!disposed) { cleanup = m.announceDemoWallet(); setDemo(true); } });
     }
+    return () => { disposed = true; cleanup?.(); };
   }, []);
-  function provider() {
-    if (demo) return demo;
-    const chosen = wallets.find(w => w.id === walletId) ?? (wallets.length === 1 ? wallets[0] : undefined);
-    if (chosen) return chosen.provider;
-    if (wallets.length > 1) throw new Error(t("Escolha sua carteira no seletor.", "Choose your wallet in the selector."));
-    if (!window.ethereum) throw new Error(t("Abra em um navegador com carteira instalada. Nunca cole sua chave aqui.", "Open in a browser with a wallet installed. Never paste a key here."));
-    return window.ethereum;
+  async function provider(): Promise<EIP1193Provider> {
+    const selected = await connection.connector?.getProvider();
+    if (!selected) throw new Error(t("Conecte sua carteira primeiro.", "Connect your wallet first."));
+    return selected as EIP1193Provider;
   }
+  function goToStep(next: 1 | 2 | 3) { setStep(next); setReview(undefined); setReviewed(false); }
+  useEffect(() => { setReview(undefined); setReviewed(false); }, [walletAddress, connection.connector?.uid, connection.chainId]);
   function requireClient() { if (!client) throw new Error(t("Informe um RPC válido.", "Enter a valid RPC.")); return client; }
   function requireSnapshot() {
     if (!snapshot || snapshot.chainId !== chainId || !same(snapshot.address, account)) throw new Error(t("Consulte a conta primeiro.", "Inspect the account first."));
@@ -95,7 +100,7 @@ export function App() {
   }
   function resetInspection() {
     setSnapshot(undefined); setReview(undefined); setPositions([]); setCoveredRequests([]); setScanProgress(""); setMamoPositions([]); setPositionFailures([]);
-    setCardDelay(undefined); setQueue([]); setReviewed(false);
+    setCardDelay(undefined); setQueue([]); setReviewed(false); setStep(1);
   }
   function openReview(action: PreparedAction) {
     if (uncertain) throw new Error(t("Confira a transação pendente antes de preparar outra.", "Check the pending transaction before preparing another."));
@@ -117,8 +122,8 @@ export function App() {
   }
   async function execute(approveOnly = false) {
     if (!review || !reviewed || uncertain) return;
-    const receipt = approveOnly ? await approveSafeProposal(requireClient(), provider(), review, submitted)
-      : await sendAction(requireClient(), provider(), review, submitted);
+    const receipt = approveOnly ? await approveSafeProposal(requireClient(), await provider(), review, submitted)
+      : await sendAction(requireClient(), await provider(), review, submitted);
     setProgress(old => ({ ...old, transactions: old.transactions.map(tx => tx.hash === receipt.transactionHash ? { ...tx, status: "confirmed" } : tx) }));
     setUncertain(false); setReview(undefined); setReviewed(false);
     setNotice(t("Execução confirmada. Atualize as posições para conferir as próximas etapas.", "Execution confirmed. Refresh positions to check the next steps."));
@@ -158,22 +163,20 @@ export function App() {
     setPositions(found); setPositionFailures(failed);
   }
   const nav = [
-    ["account", t("Conta", "Account")], ["recover", t("Recuperar acesso", "Recover access")],
-    ["transfer", t("Retirar ativos", "Withdraw assets")], ["card", t("Cartão", "Card")],
+    ["transfer", t("Saldo e tokens", "Balance and tokens")], ["card", t("Cartão", "Card")],
     ["invest", t("Investimentos", "Investments")], ["legacy", t("Cestas antigas", "Legacy baskets")],
   ];
   const explorer = chain.blockExplorers?.default.url;
-  return <div className="shell">
+  return <ConnectKitProvider theme="minimal" mode="light" options={{
+    language: lang === "pt" ? "pt-BR" : "en-US", hideBalance: true,
+    hideNoWalletCTA: true, hideRecentBadge: true, enforceSupportedChains: false,
+    disableSiweRedirect: true, embedGoogleFonts: false,
+  }}><div className="shell">
     <header>
       <a className="brand" href="./"><span className="brand-mark">p.</span><span>picnic<span className="brand-sub">recovery</span></span></a>
       <div className="header-actions"><Chip>{t("Direto na blockchain", "Directly on-chain")}</Chip>
         <button className="quiet" onClick={() => setLang(lang === "pt" ? "en" : "pt")} aria-label="Change language">{lang === "pt" ? "EN" : "PT"}</button>
-        {!demo && wallets.length > 1 && <select className="wallet-select" aria-label={t("Carteira para assinar", "Signing wallet")} disabled={busy} value={walletId} onChange={e => { setWalletId(e.target.value); setWalletAddress(undefined); setReview(undefined); }}>
-          <option value="">{t("Escolha a carteira", "Choose wallet")}</option>{wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-        </select>}
-        <button className="outline" disabled={busy} onClick={() => run(async () => {
-          const { sender } = await connectedWallet(provider(), chainId); setWalletAddress(sender);
-        })}>{walletAddress ? short(walletAddress) : t("Conectar carteira", "Connect wallet")}</button>
+        <WalletButton busy={busy} lang={lang} />
       </div>
     </header>
     <main>
@@ -186,9 +189,16 @@ export function App() {
       </section>
       <div className="workspace">
         <aside>
-          <p className="eyebrow">{t("SUA CARTEIRA", "YOUR WALLET")}</p>
-          <nav aria-label={t("Etapas", "Steps")}>{nav.map(([id, label], i) =>
-            <button key={id} disabled={busy} className={tab === id ? "nav-active" : ""} onClick={() => { setTab(id); setReview(undefined); }}><span className="nav-index">0{i + 1}</span>{label}<span className="nav-arrow">↗</span></button>)}</nav>
+          <p className="eyebrow">{t("SEU CAMINHO", "YOUR PATH")}</p>
+          <nav className="steps" aria-label={t("Etapas", "Steps")}>
+            {[
+              [t("Recuperar acesso", "Recover access"), t("Para contas com passkey", "For passkey accounts")],
+              [t("Preparar carteiras", "Prepare wallets"), t("Conexão, destino e gás", "Connection, destination and gas")],
+              [t("Mover o dinheiro", "Move funds"), t("Saldos e investimentos", "Balances and investments")],
+            ].map(([title, subtitle], i) => <button key={title} disabled={busy} aria-current={step === i + 1 ? "step" : undefined} className={step === i + 1 ? "nav-active" : ""} onClick={() => goToStep((i + 1) as 1 | 2 | 3)}>
+              <span className="step-number">{i + 1}</span><span>{title}<small>{subtitle}</small></span>
+            </button>)}
+          </nav>
           <div className="saved"><p className="eyebrow">{t("CONTAS SALVAS", "SAVED ACCOUNTS")}</p>
             {progress.accounts.length === 0 && <p className="muted small">{t("As contas consultadas ficam salvas neste navegador.", "Inspected accounts are saved in this browser.")}</p>}
             {progress.accounts.map(a => <button key={`${a.chainId}:${a.address}`} className="saved-account" disabled={busy} onClick={() => { chooseChain(a.chainId); setAccount(a.address); }}>{short(a.address)}<small>{chainById(a.chainId).name}</small></button>)}
@@ -201,8 +211,9 @@ export function App() {
           <a className="source-link" href="https://github.com/usePicnic/picnic-recovery" target="_blank" rel="noreferrer">GitHub ↗</a>
         </aside>
         <div className="content">
-          <section className="panel connection">
-            <div className="section-title"><span className="dot" /><h2>{t("Conexão independente", "Independent connection")}</h2></div>
+          {step === 1 ? <section className="panel connection">
+            <p className="eyebrow">{t("PASSO 1 / RECUPERAR ACESSO", "STEP 1 / RECOVER ACCESS")}</p>
+            <div className="section-title"><span className="dot" /><h2>{t("Vamos encontrar sua conta.", "Let’s find your account.")}</h2></div>
             <div className="grid two">
               <Field label={t("Rede", "Network")}><select value={chainId} disabled={busy} onChange={e => chooseChain(Number(e.target.value))}>{chains.map(c => <option value={c.id} key={c.id}>{c.name}</option>)}</select></Field>
               <Field label={t("Safe ou carteira antiga", "Safe or legacy wallet")}><input placeholder="0x…" value={account} disabled={busy} spellCheck={false} onChange={e => { setAccount(e.target.value); resetInspection(); }} /></Field>
@@ -210,7 +221,10 @@ export function App() {
             <details><summary>{t("Configurar RPC", "Configure RPC")}</summary><Field label="RPC URL"><input disabled={busy} value={rpc} type="url" onChange={e => { setRpc(e.target.value); resetInspection(); }} /></Field>
               <p className="muted small">{t("O RPC recebe consultas públicas. Você pode usar seu próprio nó. O endereço não é salvo nem exportado.", "The RPC receives public queries. You can use your own node. Its URL is not saved or exported.")}</p></details>
             <button disabled={busy || !account || !client} onClick={() => run(refresh)}>{busy ? t("Consultando…", "Working…") : t("Consultar conta →", "Inspect account →")}</button>
-          </section>
+          </section> : <section className="panel compact account-context">
+            <div><span className="small muted">{chain.name}</span><p className="mono small">{snapshot?.address ?? t("Conta ainda não consultada", "Account not inspected yet")}</p></div>
+            <button className="text-button" disabled={busy} onClick={() => goToStep(1)}>{t("Alterar conta ou rede", "Change account or network")}</button>
+          </section>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}
           {uncertain && <div className="message warning" role="alert">
@@ -229,21 +243,41 @@ export function App() {
               setUncertain(Boolean(other)); setLastHash(other?.hash); setReview(undefined); await refresh();
             })}>{t("Conferir recibo", "Check receipt")}</button></>}
           </div>}
-          {tab === "account" && <section className="panel">
-            <p className="eyebrow">{t("01 / COMECE AQUI", "01 / START HERE")}</p><h2>{t("Encontre o caminho da sua conta.", "Find your account's path.")}</h2>
-            <p>{t("Informe o endereço da conta e a rede. Vamos consultar quem pode movimentar os ativos e qual recuperação está configurada.", "Enter the account address and network. We'll inspect who can move assets and which recovery is configured.")}</p>
-            <div className="explainer"><span className="big-number">01</span><div><h3>{t("Já tem uma carteira que é owner?", "Already have an owner wallet?")}</h3><p>{t("Conecte-a e vá para Retirar ativos. Ver o saldo não significa ter permissão para movimentá-lo.", "Connect it and open Withdraw assets. Seeing a balance doesn't mean you can move it.")}</p></div></div>
-            <div className="explainer"><span className="big-number">02</span><div><h3>{t("Tem uma chave de recuperação?", "Have a recovery key?")}</h3><p>{t("Importe-a de forma privada na sua carteira. Se ela for guardian, recupere o acesso antes de retirar.", "Import it privately in your wallet. If it's a guardian, recover access before withdrawing.")}</p></div></div>
-            <p className="note">{t("Não cole chave privada, seed ou código de acesso nesta ferramenta.", "Never paste a private key, seed phrase or login code in this tool.")}</p>
+          {step === 1 && <section className="panel">
+            <h2>{t("Como você acessava a Picnic?", "How did you access Picnic?")}</h2>
+            <div className="access-choices" role="group" aria-label={t("Tipo de acesso", "Access type")}>
+              <button className={accessPath === "recovery" ? "choice selected" : "choice"} aria-pressed={accessPath === "recovery"} disabled={busy} onClick={() => { setAccessPath("recovery"); setReview(undefined); }}>
+                <strong>{t("Minha conta usa passkey", "My account uses a passkey")}</strong><span>{t("Recuperar com a chave de recuperação", "Recover with the recovery key")}</span>
+              </button>
+              <button className={accessPath === "owner" ? "choice selected" : "choice"} aria-pressed={accessPath === "owner"} disabled={busy} onClick={() => { setAccessPath("owner"); setReview(undefined); }}>
+                <strong>{t("Já tenho a carteira owner", "I already have the owner wallet")}</strong><span>{t("Seguir sem trocar o controle da conta", "Continue without changing account ownership")}</span>
+              </button>
+            </div>
+            {accessPath === "recovery" ? <>
+              <p>{t("Importe sua chave de recuperação em uma carteira externa, de forma privada, e conecte essa carteira. Vamos conferir se ela é um guardian da sua conta. Depois, você escolhe uma nova carteira owner, aprova o recovery e aguarda o prazo do contrato.", "Privately import your recovery key into an external wallet and connect it. We will check whether it is a guardian of your account. Then choose a new owner wallet, approve recovery and wait the contract’s delay.")}</p>
+              <p className="note">{t("A passkey original é vinculada ao domínio onde foi criada. Esta ferramenta recupera pelo guardian configurado; ela não lê sua passkey da Picnic. Sem owner ou chave de recuperação válida, só o endereço não permite mover os ativos.", "The original passkey is tied to the domain where it was created. This tool uses the configured guardian; it does not read your Picnic passkey. Without a valid owner or recovery key, the address alone cannot authorize moving assets.")}</p>
+              <p className="small">{t("O recovery já precisa de gás: cada carteira que envia uma aprovação, inicia ou finaliza paga a taxa em", "Recovery already needs gas: each wallet that sends an approval, starts or finalizes pays fees in")} <strong>{chain.nativeCurrency.symbol}</strong> ({chain.name}).</p>
+              {walletAddress && <p className="small">{t("Carteira conectada", "Connected wallet")}: <span className="mono">{walletAddress}</span><br />{snapshot?.recoveries.some(r => r.guardians.some(g => same(g, walletAddress))) ? t("Guardian identificado nesta conta.", "Guardian identified for this account.") : t("Ainda não identificada como guardian nesta consulta.", "Not yet identified as a guardian in this inspection.")}</p>}
+              <button className="text-button" disabled={busy} onClick={() => goToStep(2)}>{t("Ver onde colocar gás →", "See where to add gas →")}</button>
+            </> : <p>{t("Você pode pular o recovery. No próximo passo, conecte a carteira e confira se ela é owner da conta consultada.", "You can skip recovery. In the next step, connect the wallet and check that it is an owner of the inspected account.")}</p>}
+            <p className="small muted">{t("Nunca cole chave privada ou seed nesta ferramenta.", "Never paste a private key or seed phrase into this tool.")}</p>
+            <button disabled={busy || !snapshot} onClick={() => goToStep(2)}>{t("Continuar para preparar carteiras →", "Continue to prepare wallets →")}</button>
           </section>}
-          {snapshot && <section className="panel compact">
+          {step === 2 && <PrepareWallet key={`${chainId}:${rpc}:${snapshot?.address}:${walletAddress}:${connection.connector?.uid}`} client={client} chain={chain} snapshot={snapshot} wallet={walletAddress} lang={lang} busy={busy} destination={destination} setDestination={setDestination} run={run} next={() => goToStep(3)} />}
+          {step === 3 && <section className="panel compact">
+            <p className="eyebrow">{t("PASSO 3 / MOVER O DINHEIRO", "STEP 3 / MOVE FUNDS")}</p>
+            <h2>{t("Retire os ativos, no seu ritmo.", "Withdraw assets at your pace.")}</h2>
+            <p>{t("Escolha de onde retirar. Alguns investimentos e o cartão têm uma espera antes de concluir. Revise cada operação e mantenha gás para as próximas etapas.", "Choose where to withdraw from. Some investments and the card require a waiting period. Review each operation and keep gas for the next steps.")}</p>
+            <nav className="asset-tabs" aria-label={t("Origem dos ativos", "Asset source")}>{nav.map(([id, label]) => <button key={id} disabled={busy} aria-current={tab === id ? "page" : undefined} className={tab === id ? "nav-active" : ""} onClick={() => { setTab(id); setReview(undefined); }}>{label}</button>)}</nav>
+          </section>}
+          {step === 1 && snapshot && <section className="panel compact">
             <div className="section-title"><h2>{t("Estado verificado", "Inspected state")}</h2><Chip>{snapshot.version === "EOA" ? "EOA" : `Safe ${snapshot.version}`}</Chip></div>
             <div className="stats"><div><small>{t("Saldo nativo", "Native balance")}</small><strong>{formatUnits(snapshot.nativeBalance, 18)} {chain.nativeCurrency.symbol}</strong></div><div><small>{t("Assinaturas necessárias", "Required signatures")}</small><strong>{snapshot.threshold.toString()} / {snapshot.owners.length}</strong></div><div><small>{t("Bloco", "Block")}</small><strong>{snapshot.block.toString()}</strong></div></div>
             <p className="small muted">Owners</p>{snapshot.owners.map(a => <p className="mono small" key={a}>{a}</p>)}
             {snapshot.warnings.map(w => <p className="note" key={w}>{w}</p>)}
           </section>}
-          {tab === "recover" && <section className="panel">
-            <p className="eyebrow">{t("02 / RECUPERAR CONTROLE", "02 / RECOVER CONTROL")}</p><h2>{t("Uma nova chave para a mesma conta.", "A new key for the same account.")}</h2>
+          {step === 1 && accessPath === "recovery" && <section className="panel">
+            <p className="eyebrow">{t("RECOVERY / APROVAR, AGUARDAR E FINALIZAR", "RECOVERY / APPROVE, WAIT AND FINALIZE")}</p><h2>{t("Uma nova chave para a mesma conta.", "A new key for the same account.")}</h2>
             {!snapshot && <p>{t("Consulte a conta para começar.", "Inspect the account to begin.")}</p>}
             {snapshot && snapshot.recoveries.length === 0 && <p className="note">{t("Nenhum módulo de recuperação compatível foi identificado. Isso não significa que não existam outras rotas.", "No compatible recovery module was identified. Other routes may still exist.")}</p>}
             {snapshot?.recoveries.map(r => <div key={r.module} className="recovery-box">
@@ -262,8 +296,8 @@ export function App() {
               </>}
             </div>)}
           </section>}
-          {(tab === "transfer" || tab === "card") && <section className="panel">
-            <p className="eyebrow">{tab === "card" ? "04 / CARD" : "03 / TRANSFER"}</p><h2>{tab === "card" ? t("Retire o saldo do cartão.", "Withdraw card funds.") : t("Escolha o destino dos seus ativos.", "Choose where your assets go.")}</h2>
+          {step === 3 && (tab === "transfer" || tab === "card") && <section className="panel">
+            <p className="eyebrow">{tab === "card" ? t("CARTÃO", "CARD") : t("SALDO E TOKENS", "BALANCE AND TOKENS")}</p><h2>{tab === "card" ? t("Retire o saldo do cartão.", "Withdraw card funds.") : t("Escolha o destino dos seus ativos.", "Choose where your assets go.")}</h2>
             {tab === "card" && <><Field label={t("Safe do cartão (Gnosis)", "Card Safe (Gnosis)")}><input disabled={busy} value={cardAddress} onChange={e => { setCardAddress(e.target.value); setCardDelay(undefined); setQueue([]); }} placeholder="0x…" /></Field>
               <button className="outline" disabled={busy || chainId !== 100} onClick={() => run(async () => {
                 const delays = await inspectCard(requireClient(), address(cardAddress), chainId);
@@ -287,8 +321,8 @@ export function App() {
             <p className="small muted">{t("O envio acontece nesta rede, sem conversão. Para começar, escolha uma pequena quantidade.", "The transfer stays on this network, with no conversion. Start with a small amount.")}</p>
             <button disabled={busy || !snapshot || (tab === "card" && !cardDelay)} onClick={() => run(() => prepareTransfer(tab === "card"))}>{tab === "card" ? t("Revisar retirada com espera", "Review delayed withdrawal") : t("Revisar transferência", "Review transfer")}</button>
           </section>}
-          {tab === "invest" && <section className="panel">
-            <p className="eyebrow">{t("05 / POSIÇÕES E RESGATES", "05 / POSITIONS & REDEMPTIONS")}</p><h2>{t("Saia pelo contrato do investimento.", "Exit through the investment contract.")}</h2>
+          {step === 3 && tab === "invest" && <section className="panel">
+            <p className="eyebrow">{t("POSIÇÕES E RESGATES", "POSITIONS & REDEMPTIONS")}</p><h2>{t("Saia pelo contrato do investimento.", "Exit through the investment contract.")}</h2>
             <p>{t("Consulte as posições desta Safe. Resgates em etapas continuam aqui quando a espera terminar.", "Inspect this Safe's positions. Multi-step redemptions can be resumed here after the waiting period.")}</p>
             <button className="outline" disabled={busy || !snapshot} onClick={() => run(scanPositions)}>{t("Consultar posições", "Inspect positions")}</button>
             <div className="grid two"><Field label={t("Quantidade de cotas para resgatar", "Shares to redeem")}><input disabled={busy} value={amount} onChange={e => setAmount(e.target.value)} placeholder={t("Vazio = disponível", "Empty = available")} inputMode="decimal" /></Field>
@@ -341,7 +375,7 @@ export function App() {
             </article>)}
             {positionFailures.length > 0 && <details className="message warning"><summary>{t("Consulta parcial — posições não verificadas", "Partial scan — unverified positions")} ({positionFailures.length})</summary>{positionFailures.map(f => <p key={f} className="small">{f}</p>)}</details>}
           </section>}
-          {tab === "legacy" && <LegacyPanel key={`${chainId}:${snapshot?.address ?? ""}:${rpc}`} client={client} snapshot={snapshot} busy={busy} lang={lang} run={run} review={openReview} invalidate={() => setReview(undefined)} />}
+          {step === 3 && tab === "legacy" && <LegacyPanel key={`${chainId}:${snapshot?.address ?? ""}:${rpc}`} client={client} snapshot={snapshot} busy={busy} lang={lang} run={run} review={openReview} invalidate={() => setReview(undefined)} />}
           {review && <section className="panel review" aria-label={t("Revisão da transação", "Transaction review")}>
             <p className="eyebrow">{t("ANTES DE ASSINAR", "BEFORE YOU SIGN")}</p><h2>{review.label}</h2>
             <dl><dt>{t("Rede", "Network")}</dt><dd>{chain.name} ({review.chainId})</dd><dt>{t("Conta", "Account")}</dt><dd className="mono">{review.account}</dd>
@@ -365,5 +399,5 @@ export function App() {
       </div>
     </main>
     <footer><span>picnic recovery · {t("Código aberto. Controle seu.", "Open source. Your control.")}</span><span>{t("Sem rastreamento · Sem custódia de chaves", "No tracking · No key custody")}</span></footer>
-  </div>;
+  </div></ConnectKitProvider>;
 }

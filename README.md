@@ -18,18 +18,17 @@ Open `http://127.0.0.1:4173`. The build contains its own scripts, styles, ABI fr
 
 ## Use
 
-1. Select a chain, enter the account address and optionally choose your own HTTPS RPC (HTTP is allowed on loopback).
-2. Connect an external wallet you control. If it is already an owner, use asset exits directly. If it is a configured guardian, approve a new owner, start recovery, wait the contract's actual delay, then finalize.
-3. Review destination, amount, underlying contract and decoded call. Safe transactions use a nonce-bound EIP-712 signature, then a wallet transaction. The connected wallet pays native gas.
-4. For a card Safe, first recover its configured controller (normally the Picnic Safe). Inspect the card's Delay module, queue a transfer, wait its cooldown, then execute the queue head. Expired queue entries can be skipped explicitly.
-5. Exit investments one layer at a time. Some requests need a later settlement/claim. Transferable receipts and tokenized stocks can be moved as-is without selling them.
-6. Export public progress before changing browsers. Pending transaction hashes remain pending after a timeout; inspect receipts before repeating an action. Importing progress never imports a signing key or changes on-chain ownership.
+1. **Recover access.** Select a chain and account, then choose your access path. Passkey accounts recover using their configured guardian key imported privately into an external wallet. Approve a new owner, start recovery, wait the contract's delay, then finalize. An existing owner can skip recovery. The original Picnic passkey is domain-bound and is not read by this tool. Recovery transactions already require native gas in each sending wallet.
+2. **Prepare wallets.** Connect the owner wallet with the standard ConnectKit modal. The app discovers installed browser wallets through Wagmi/EIP-6963, without a WalletConnect project or relay. Check the sender's native balance on the selected network, copy its funding address and set a destination. Tokens and gas on another network cannot pay these fees. A positive balance is not a promise that every withdrawal is affordable: each transaction is simulated/estimated again and the wallet shows its fee. For Safe execution, the external sender pays; a legacy EOA pays its own gas and must retain a reserve when withdrawing native coins.
+3. **Move funds.** Choose balances/tokens, card, investments or legacy baskets. Review destination, amount and decoded call for each operation. Safe transactions use nonce-bound EIP-712 signatures followed by a wallet transaction. For a card, recover its controller first, queue the transfer, wait the cooldown, then execute the queue head. Exit investments one layer at a time; some requests require later settlement/claim. Transferable receipts can be moved without selling them.
+
+Export public progress before changing browsers. Pending transaction hashes remain pending after a timeout; inspect receipts before repeating an action. Importing progress never imports a signing key or changes on-chain ownership.
 
 Never enter a seed, private key, OTP or Picnic password into this app. Import a recovered signing key privately into a wallet you trust. Without an existing owner/guardian key or another configured on-chain recovery authority, an address and its balance alone cannot authorize a withdrawal. Keep an independent owner or guardian provisioned **before** Picnic becomes unavailable.
 
 ## Dependencies and limits
 
-- An Ethereum-compatible browser wallet, a working RPC and native gas are required. The RPC observes public account queries. Its URL is not persisted or exported.
+- An Ethereum-compatible browser wallet, a working RPC and native gas are required. The RPC observes public account queries. Its URL is not persisted or exported. ConnectKit can also resolve public ENS names/avatars and show wallet balances using the configured public chain transports; recovery and asset reads use the RPC chosen in the app.
 - Recovery recognizes the deployed Candide `0.0.1` runtime (including immutable delay variants). Safe `1.3.0`/`1.4.1` singleton runtime hashes are pinned to Safe's public deployment registry. Unknown deployments fail closed.
 - Guards, token restrictions, protocol pauses, liquidity shortages and issuer restrictions still apply. A transferable investment token is not the same as redemption into its underlying asset.
 - No mandatory swaps, fiat payouts, bridge services, price API, analytics, remote fonts or CDN-loaded JavaScript. Existing off-chain unsettled orders are outside the on-chain balance the app can move.
@@ -48,7 +47,7 @@ npm run build
 npm run release:archive  # requires a clean, committed source tree
 ```
 
-For browser development, run `node scripts/demo-chain.mjs`, then `npm run dev` and open `http://127.0.0.1:5173/?demo=1`. The script prints fictitious Safe/token addresses and the loopback RPC. Demo signing uses only that Anvil instance and is removed from production builds. Do not import Anvil's public test keys into a real wallet.
+For browser development, run `node scripts/demo-chain.mjs`, then `npm run dev` and open `http://127.0.0.1:5173/?demo=1`. The script prints fictitious Safe/token addresses and the loopback RPC. Select “Anvil local (test only)” in the ConnectKit modal. Demo signing uses only that Anvil instance and is removed from production builds. Do not import Anvil's public test keys into a real wallet.
 
 [Architecture](docs/architecture.md) · [Coverage](docs/coverage.md) · [Third-party notices](NOTICE.md)
 
