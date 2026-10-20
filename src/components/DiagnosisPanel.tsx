@@ -14,10 +14,10 @@ type Props = {
   results: NetworkDiagnosis[]; recovery?: ReactNode; overrides: RpcOverrides;
   setRpc: (id: number, value: string) => void; rescan: (id?: number) => void; retryPending: (id: number) => void;
   open: (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: TokenHolding) => void;
-  custom: CustomTokenState[]; addCustom: Parameters<typeof AssetTable>[0]["addCustom"];
+  custom: CustomTokenState[]; addCustom: Parameters<typeof AssetTable>[0]["addCustom"]; baskets?: Parameters<typeof AssetTable>[0]["baskets"];
   removeCustom: (chainId: number, token: Address) => void; retryCustom: (chainId: number, token: Address) => void;
 };
-export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, lang, busy, results, recovery, overrides, setRpc, rescan, retryPending, open, custom, addCustom, removeCustom, retryCustom }: Props) {
+export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, lang, busy, results, recovery, overrides, setRpc, rescan, retryPending, open, custom, addCustom, removeCustom, retryCustom, baskets }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const finished = results.filter(r => !["queued", "scanning"].includes(r.status)).length;
   const retryTimeout = Math.max(0, ...results.flatMap(r => [r.retryTimeout ?? 0, ...r.linkedCards?.map(c => c.retryTimeout ?? 0) ?? []]));
@@ -57,7 +57,7 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
         }}>{id === "assets" ? t("Ativos", "Assets") : <>{t("Pendências", "Needs attention")} <span className="tab-count">{pendingCount}</span></>}</button>)}
     </div>
     <div id="diagnosis-assets" role="tabpanel" aria-labelledby="diagnosis-assets-tab" hidden={view !== "assets"}>
-      <AssetTable lang={lang} busy={busy} ready={results.length > 0} results={results} custom={custom} open={open} addCustom={addCustom} removeCustom={removeCustom} retryCustom={retryCustom} showActions={false} />
+      <AssetTable lang={lang} busy={busy} ready={results.length > 0} results={results} custom={custom} open={open} addCustom={addCustom} removeCustom={removeCustom} retryCustom={retryCustom} showActions={false} baskets={baskets} />
     </div>
     <div id="diagnosis-pending" role="tabpanel" aria-labelledby="diagnosis-pending-tab" hidden={view !== "pending"}>
       <p className="small muted">{t("O que precisa de atenção antes de continuar.", "What needs attention before continuing.")}</p>

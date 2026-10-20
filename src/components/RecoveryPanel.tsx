@@ -2,6 +2,7 @@ import type { Address } from "viem";
 import type { AccountSnapshot } from "../core/types";
 import { same } from "../core/client";
 import { NetworkSelect } from "./NetworkSelect";
+import { newOwnerError } from "../core/destination";
 
 type Props = {
   snapshot: AccountSnapshot; wallet?: Address; lang: "pt" | "en"; busy: boolean;
@@ -11,6 +12,8 @@ type Props = {
 export function RecoveryPanel({ snapshot, wallet, lang, busy, owner, setOwner, networkIds, selectNetwork, prepare, review }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   if (snapshot.passkey !== "detected") return null;
+  // Same rule as recoveryAction, shown while typing so review is never offered.
+  const ownerProblem = newOwnerError(owner, snapshot);
   return <section className="recovery-substep" aria-labelledby="recovery-title">
     <p className="eyebrow">{t("DIAGNÓSTICO / CONTA COM PASSKEY", "DIAGNOSIS / PASSKEY ACCOUNT")}</p>
     <h3 id="recovery-title">{t("Recuperar acesso", "Recover access")}</h3>
@@ -28,10 +31,15 @@ export function RecoveryPanel({ snapshot, wallet, lang, busy, owner, setOwner, n
         <div className="row"><button disabled={busy || snapshot.timestamp < r.pending.executeAfter} onClick={() => review(r.module, "finalize")}>{t("Revisar finalização", "Review finalization")}</button>
           <button className="outline" disabled={busy} onClick={() => review(r.module, "cancel")}>{t("Cancelar com owner atual", "Cancel with current owner")}</button></div>
       </> : <>
-        <label className="field"><span>{t("Nova carteira que você controla", "New wallet you control")}</span><input disabled={busy} value={owner} onChange={event => setOwner(event.target.value)} placeholder="0x…" /></label>
+        <label className="field"><span>{t("Nova carteira que você controla", "New wallet you control")}</span><input disabled={busy} value={owner} onChange={event => setOwner(event.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off"
+          aria-invalid={!!ownerProblem} aria-describedby={ownerProblem ? `owner-error-${r.module}` : undefined} /></label>
+        {ownerProblem && <p id={`owner-error-${r.module}`} className="small table-error" role="alert">{ownerProblem === "guardian"
+          ? t("Este endereço é um guardião desta conta. O novo owner precisa ser outra carteira, diferente de todos os guardiões.", "This address is a guardian of this account. The new owner must be another wallet, different from every guardian.")
+          : ownerProblem === "source" ? t("Este é o endereço da própria Safe. Informe a nova carteira owner.", "This is the Safe's own address. Enter the new owner wallet.")
+          : t("Informe um endereço válido (0x…).", "Enter a valid address (0x…).")}</p>}
         <p className="small muted">{t("A nova carteira deve ser diferente dos guardiões. A assinatura autoriza a troca de controle da Safe.", "The new wallet must differ from the guardians. The signature authorizes a change of Safe control.")}</p>
-        <div className="row"><button disabled={busy} onClick={() => review(r.module, "approve")}>{t("Revisar aprovação", "Review approval")}</button>
-          <button className="outline" disabled={busy} onClick={() => review(r.module, "start")}>{t("Iniciar após aprovações", "Start after approvals")}</button></div>
+        <div className="row"><button disabled={busy || !owner.trim() || !!ownerProblem} onClick={() => review(r.module, "approve")}>{t("Revisar aprovação", "Review approval")}</button>
+          <button className="outline" disabled={busy || !owner.trim() || !!ownerProblem} onClick={() => review(r.module, "start")}>{t("Iniciar após aprovações", "Start after approvals")}</button></div>
       </>}
     </div>)}
     <details><summary>{t("Detalhes da conta", "Account details")}</summary>

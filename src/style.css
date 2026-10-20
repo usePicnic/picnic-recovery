@@ -135,3 +135,57 @@
 @media(max-width:640px){.linked-account{padding:16px;gap:10px;flex-wrap:wrap}.linked-account-info{flex-basis:calc(100% - 46px)}.linked-account .outline{margin-left:46px;white-space:normal}.linked-account .account-address{font-size:11px}}
 
 .next-step .scan-spinner{width:18px;height:18px;border-width:2px}
+/* Legacy basket contents (shared by diagnosis, preparation, move funds and batch review) */
+.basket-contents{margin-top:6px;min-width:0}
+.basket-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:4px 0}
+.scan-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#9EA19B;margin-right:6px}
+.basket-holdings{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:2px}
+.basket-holdings li{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:5px 10px;border-radius:6px;background:#F5F7F3;font-size:12px}
+.basket-holdings .token-text strong{font-size:12px}
+.basket-holdings .numeric{font-variant-numeric:tabular-nums;white-space:nowrap}
+.basket-stakes{margin-top:8px}
+.migration-assets li{flex-wrap:wrap}
+.migration-assets li>.basket-contents,.migration-assets li>.basket-status{flex-basis:100%;padding:0 0 10px 32px}
+.batch-selected .basket-contents,.batch-selected .basket-status{flex-basis:100%}
+/* Batch migration: one grouped Safe transaction per network, as substeps */
+.batch-destination{display:flex;justify-content:space-between;align-items:center;gap:16px;background:#F5F7F3;border:1px solid #D8DCD5;border-radius:8px;padding:14px 18px;margin:18px 0}
+.batch-destination p{margin:4px 0 0}
+.batch-steps{list-style:none;margin:20px 0 0;padding:0;display:grid;gap:14px}
+.batch-step{border:1px solid #D8DCD5;border-radius:10px;padding:18px 20px;background:#FFFFFF}
+.batch-step.current{border:2px solid #211D1A;padding:17px 19px}
+.batch-step.ok{background:#FAFDF0;border-color:#9EE510}
+.batch-step.partial{border-color:#9EE510}
+.batch-step.blocked{border-color:#FBDF88}
+.batch-step-head{display:flex;align-items:center;gap:12px}
+.batch-step-title{display:flex;flex-direction:column;flex:1;min-width:0}
+.batch-step-title small{font-size:11px;color:#5A5F58}
+.batch-index{flex-shrink:0;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;border:1px solid #9EA19B}
+.batch-step.current .batch-index,.batch-step.ok .batch-index{background:#CCFF00;border-color:#9EE510}
+.batch-stage{margin:12px 0 0;padding:8px 12px;background:#F0FDB9;border-radius:6px}
+.batch-confirmed{margin:10px 0 0;color:#23684C}
+.batch-selected,.batch-entries{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:8px}
+.batch-selected>li{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 12px;padding:10px 12px;border:1px solid #EFF1EE;border-radius:8px}
+.batch-selected .numeric{font-variant-numeric:tabular-nums;white-space:nowrap;font-size:13px}
+.batch-plan h3{margin:18px 0 6px}
+.batch-entry,.batch-entries>li{padding:12px 14px;border:1px solid #E4E7E1;border-radius:8px;background:#FFFFFF}
+.batch-entry.received,.batch-entry.shares{border-left:3px solid #CCFF00}
+.batch-entry.queued{border-left:3px solid #FBDF88}
+.batch-entry-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+.batch-entry-head strong{font-size:14px}
+.batch-entry-head .token-badge{margin-left:0}
+.outcome-received,.outcome-shares{background:#F0FDB9;border-color:#C9EE7A}
+.outcome-queued{background:#FEF8E6;border-color:#FBDF88;color:#6D5203}
+.batch-amounts{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.batch-amounts li{padding:4px 10px;border-radius:99px;background:#F5F7F3;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.batch-notes,.batch-advanced{margin:8px 0 0}
+.batch-notes ul,.batch-advanced ul{margin:6px 0;padding-left:18px}
+.batch-calls{margin:8px 0;padding-left:20px;overflow-wrap:anywhere}
+.batch-facts{display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px 14px;font-size:12px;margin:16px 0 10px}
+.batch-facts dt{color:#5A5F58}.batch-facts dd{margin:0;overflow-wrap:anywhere}
+.batch-group{margin-top:16px}.batch-group h4{font-size:13px;margin:0}
+.batch-later{margin-top:14px;padding:12px 14px;background:#FEF8E6;border:1px solid #FBDF88;border-radius:8px;font-size:13px}
+.batch-later ul{margin:8px 0 0;padding-left:18px}.batch-later .batch-entries{padding-left:0}
+.batch-actions{margin-top:14px}.batch-actions .checkbox{margin:14px 0}
+.break{word-break:break-all;max-height:140px;overflow:auto;background:#EFF1EE;padding:8px;border-radius:4px}
+.individual-withdrawals h3{margin-bottom:4px}
+@media(max-width:640px){.batch-step{padding:14px}.batch-step.current{padding:13px}.batch-destination{flex-direction:column;align-items:flex-start}.batch-facts{grid-template-columns:1fr;gap:2px}.batch-facts dd{margin-bottom:8px}.batch-actions .row button{flex:1 1 100%}.migration-assets li>.basket-contents,.migration-assets li>.basket-status{padding-left:0}}

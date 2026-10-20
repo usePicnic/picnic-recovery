@@ -7,6 +7,8 @@ import type { NetworkDiagnosis } from "../core/diagnosis";
 import { rpcFor, type CustomTokenState, type RpcOverrides } from "./useDiagnosis";
 import { ChainLogo } from "./ChainLogo";
 import { CustomTokenForm, ItemBalance, ItemText, type AddResult } from "./AssetTable";
+import { BasketContentsView } from "./BasketContents";
+import { DestinationMessage } from "./DestinationMessage";
 import { gasFor, gasKey, gasSettled, gasStarted, isNew, isSelected, readiness, type GasEntry, type GasState, type MigrationItem, type Readiness, type Selection } from "./migration";
 
 type Lang = "pt" | "en";
@@ -16,6 +18,8 @@ type Props = {
   destination: string; setDestination: (value: string) => void;
   rescan: (id?: number) => void; addCustom: (chainId: number, token: string) => AddResult; retryCustom: (chainId: number, token: Address) => void;
   run: (task: () => Promise<void>) => Promise<void>; next: () => void; connect: () => void;
+  // Known recovery guardians of this source account, on any network.
+  guardians?: readonly Address[]; retryBasket?: (id: bigint) => void;
 };
 
 // One endpoint, one block. The balance is shown with its block: it is a
@@ -27,7 +31,7 @@ async function readGas(chainId: number, rpc: string, wallet: Address) {
   return { balance: await client.getBalance({ address: wallet, blockNumber: block }), block };
 }
 
-export function PrepareMigration({ lang, busy, account, wallet, results, items, selection, select, overrides, destination, setDestination, rescan, addCustom, retryCustom, run, next, connect }: Props) {
+export function PrepareMigration({ lang, busy, account, wallet, results, items, selection, select, overrides, destination, setDestination, rescan, addCustom, retryCustom, run, next, connect, guardians = [], retryBasket }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [gas, setGas] = useState<GasState>({});
   const gasRef = useRef(gas);
@@ -65,7 +69,7 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
   const emptyIncomplete = incomplete.filter(r => !groups.some(g => g.chain.id === r.chainId));
   const scanning = results.filter(r => r.status === "queued" || r.status === "scanning");
   const blocked = selectedChains.map(id => ({ id, state: status(id) })).filter(entry => entry.state !== "ready");
-  const destinationProblem = destinationError(destination, account, wallet);
+  const destinationProblem = destinationError(destination, account, wallet, guardians);
   const canContinue = chosen.length > 0 && blocked.length === 0 && !destinationProblem && !busy;
 
   const labels: Record<Readiness, string> = {
@@ -128,6 +132,7 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
                 <ItemText item={item} lang={lang} extra={isNew(selection, item) ? <em className="token-badge new">{t("Novo · não selecionado", "New · not selected")}</em> : undefined} />
                 <span className="migration-balance"><ItemBalance item={item} lang={lang} /></span>
               </label>
+              {item.basketId !== undefined && <BasketContentsView compact contents={item.contents} lang={lang} retry={retryBasket && (() => retryBasket(item.basketId!))} />}
               {item.custom?.status === "error" && <button className="text-button" disabled={busy} onClick={() => retryCustom(item.chainId, item.custom!.address)}>{t("Tentar de novo", "Retry")}</button>}
             </li>)}
           </ul>
@@ -147,7 +152,7 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
     <CustomTokenForm lang={lang} busy={busy || !results.length} add={addCustom} />
 
     <label className="field"><span>{t("Destino dos ativos (todas as redes)", "Asset destination (all networks)")}</span><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" aria-invalid={!!destination && !!destinationProblem} aria-describedby={destination && destinationProblem ? "destination-error" : undefined} /></label>
-    {destination && destinationProblem && <p id="destination-error" className="small table-error" role="alert">{destinationProblem === "connected" ? t("Use outra carteira como destino. A carteira conectada é usada para assinar as operações.", "Use another wallet as the destination. The connected wallet signs the operations.") : destinationProblem === "source" ? t("Este endereço é a própria conta de origem. Para migrar os ativos, informe o endereço de outra carteira.", "This address is the source account itself. To move the assets, enter another wallet's address.") : t("Informe um endereço válido (0x…).", "Enter a valid address (0x…).")}</p>}
+    {destination && destinationProblem && <DestinationMessage id="destination-error" problem={destinationProblem} lang={lang} />}
     <p className="small muted">{t("Informe uma carteira de destino diferente da carteira conectada. Você precisa controlar essa outra carteira.", "Enter a destination wallet different from the connected wallet. You must control that other wallet.")}</p>
     <p className="small muted">{t("O mesmo endereço precisa conseguir receber em cada rede selecionada. Você confere o destino e o efeito em cada operação antes de assinar; nada é enviado automaticamente.", "The same address must be able to receive on each selected network. You review the destination and effect of every operation before signing; nothing is sent automatically.")}</p>
     <p className="note">{t("Um saldo positivo para taxas não garante todas as retiradas: cada operação é simulada e estimada de novo antes do envio, e a carteira mostra a taxa. Em uma conta antiga sem Safe, a própria conta paga as taxas: deixe uma reserva de gás ao retirar a moeda nativa. Se a conta exigir mais de uma assinatura, os outros owners também precisam aprovar.", "A positive fee balance does not guarantee every withdrawal: each operation is simulated and estimated again before sending, and your wallet shows the fee. For a legacy account without a Safe, the account itself pays fees: leave a gas reserve when withdrawing native coins. If the account requires more than one signature, the other owners must also approve.")}</p>
@@ -156,8 +161,9 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
       <div className="small muted">{chosen.length === 0 ? <p>{t("Selecione ao menos um ativo para continuar.", "Select at least one asset to continue.")}</p>
         : blocked.length > 0 ? <><p>{t("Antes de continuar, resolva ou desmarque:", "Before continuing, resolve or untick:")}</p>
           <ul className="blockers">{blocked.map(entry => <li key={entry.id}>{chainById(entry.id).name}: {labels[entry.state]}</li>)}</ul></>
+        : destinationProblem === "guardian" ? <p>{t("O destino é um guardião de recuperação desta conta. Informe outra carteira para continuar.", "The destination is a recovery guardian of this account. Enter another wallet to continue.")}</p>
         : destinationProblem ? <p>{t("Informe um destino válido para continuar.", "Enter a valid destination to continue.")}</p>
-        : <p>{t("Tudo pronto. Você revisa e assina cada operação no próximo passo.", "All set. You review and sign each operation in the next step.")}</p>}</div>
+        : <p>{t("Tudo pronto. No próximo passo você revisa um lote por rede, ou retira ativo por ativo.", "All set. Next you review one batch per network, or withdraw assets one by one.")}</p>}</div>
       <button className="next-step" disabled={!canContinue} onClick={next}>{t("Continuar para mover o dinheiro →", "Continue to move funds →")}</button>
     </div>
   </section>;

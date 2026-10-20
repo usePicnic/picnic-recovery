@@ -6,6 +6,9 @@ import type { CustomTokenState } from "./useDiagnosis";
 import { ChainLogo } from "./ChainLogo";
 import { NetworkSelect } from "./NetworkSelect";
 import { migrationItems, type MigrationItem } from "./migration";
+import { formatAmount } from "./format";
+import { BasketContentsView } from "./BasketContents";
+import type { BasketContentsState } from "./useBasketContents";
 
 type Lang = "pt" | "en";
 type Open = (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: TokenHolding) => void;
@@ -15,18 +18,11 @@ type Props = {
   showActions?: boolean; openItem?: (item: MigrationItem, result: NetworkDiagnosis) => void;
   // Move funds: only the assets selected in Prepare wallets.
   selected?: ReadonlySet<string>;
+  baskets?: BasketContentsState;
   addCustom: (chainId: number, token: string) => AddResult; removeCustom: (chainId: number, token: Address) => void; retryCustom: (chainId: number, token: Address) => void;
 };
 
-// Grouped whole part, at most six fraction digits; the exact value stays in the title.
-export function formatAmount(value: bigint, decimals: number | undefined, lang: Lang) {
-  if (decimals === undefined) return `${value.toString()} ${lang === "pt" ? "unidades brutas" : "raw units"}`;
-  const [whole, fraction = ""] = formatUnits(value, decimals).split(".");
-  const shown = fraction.slice(0, 6).replace(/0+$/, "");
-  if (value > 0n && whole === "0" && !shown) return lang === "pt" ? "< 0,000001" : "< 0.000001";
-  const grouped = BigInt(whole).toLocaleString(lang === "pt" ? "pt-BR" : "en-US");
-  return shown ? `${grouped}${lang === "pt" ? "," : "."}${shown}` : grouped;
-}
+export { formatAmount };
 function Amount({ value, decimals, lang }: { value: bigint; decimals?: number; lang: Lang }) {
   return <span title={decimals === undefined ? undefined : formatUnits(value, decimals)}>{formatAmount(value, decimals, lang)}</span>;
 }
@@ -59,10 +55,10 @@ export function ItemBalance({ item, lang }: { item: MigrationItem; lang: Lang })
 }
 const PAGE = 40;
 
-export function AssetTable({ lang, busy, ready, results, custom, open, addCustom, removeCustom, retryCustom, selected, showActions = true, openItem }: Props) {
+export function AssetTable({ lang, busy, ready, results, custom, open, addCustom, removeCustom, retryCustom, selected, showActions = true, openItem, baskets }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [all, setAll] = useState(false);
-  const rows = migrationItems(results, custom).filter(item => !selected || selected.has(item.id));
+  const rows = migrationItems(results, custom, baskets?.contents).filter(item => !selected || selected.has(item.id));
   const action = (item: MigrationItem) => {
     const result = results.find(r => r.chainId === item.chainId), canOpen = !!result?.snapshot && !busy;
     const go = (tab: string, holding?: TokenHolding) => { if (result) { if (openItem) openItem(item, result); else open(result, 3, tab, holding); } };
@@ -82,7 +78,8 @@ export function AssetTable({ lang, busy, ready, results, custom, open, addCustom
       <caption className="sr-only">{t("Ativos por token e rede", "Assets by token and network")}</caption>
       <thead><tr><th scope="col">{t("Ativo", "Asset")}</th><th scope="col">{t("Rede", "Network")}</th><th scope="col" className="numeric">{t("Saldo", "Balance")}</th>{showActions && <th scope="col"><span className="sr-only">{t("Ação", "Action")}</span></th>}</tr></thead>
       <tbody>{visible.map(row => <tr key={row.id}>
-        <th scope="row" data-label={t("Ativo", "Asset")}><ItemText item={row} lang={lang} /></th>
+        <th scope="row" data-label={t("Ativo", "Asset")}><ItemText item={row} lang={lang} />
+          {row.basketId !== undefined && baskets && <BasketContentsView compact contents={row.contents} lang={lang} retry={() => baskets.retry([row.basketId!])} />}</th>
         <td data-label={t("Rede", "Network")}><span className="network-cell"><ChainLogo id={row.chainId} />{chainById(row.chainId).name}</span></td>
         <td data-label={t("Saldo", "Balance")} className="numeric"><ItemBalance item={row} lang={lang} /></td>
         {showActions && <td className="action-cell">{action(row)}</td>}

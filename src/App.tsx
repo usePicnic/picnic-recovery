@@ -1,18 +1,23 @@
+import { displayError } from "./core/errors";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatUnits, type Address, type EIP1193Provider, type Hex } from "viem";
 import { chains, chainById } from "./catalog/chains";
 import { products } from "./catalog/products";
 import { address, assertChain, parseAmount, publicClient, same } from "./core/client";
 import { inspectAccount } from "./core/inspect";
-import { assertSeparateRecipient } from "./core/destination";
-import { recoveryAction, safeAction, sendAction, transferCall, approveSafeProposal, safeReceiptSucceeded } from "./core/actions";
-import { verifyTokenReceipt, type ReceiptExpectation } from "./core/receipts";
+import { assertSeparateRecipient, destinationError, knownGuardians } from "./core/destination";
+import { recoveryAction, safeAction, sendAction, transferCall, approveSafeProposal } from "./core/actions";
+import { verifyReceipt, type ReceiptExpectation } from "./core/receipts";
 import { erc20Abi } from "./core/abi";
 import { inspectCard, enqueueCard, readQueue, dispatchCard, skipExpiredCard, queueStatus, type CardDelay, type QueuedCall } from "./core/card";
 import { inspectPosition, redeemPosition, claimCovered, settleCovered, claimStader, claimStakingRewards, recoverCoveredDeposit, findCoveredRequests, type Position } from "./core/investments";
 import { useAccount } from "wagmi";
 import { ConnectKitProvider } from "connectkit";
 import { PrepareMigration } from "./components/PrepareMigration";
+import { BatchMigration, type SubmittedRecord } from "./components/BatchMigration";
+import { DestinationMessage } from "./components/DestinationMessage";
+import { BasketContentsView } from "./components/BasketContents";
+import { useBasketContents } from "./components/useBasketContents";
 import { chainOf, commitSelection, emptySelection, forAccount, isExcluded, migrationItems, positionId, selectedIds, setSelected, transferId, type Selection, type MigrationItem } from "./components/migration";
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
 import { RecoveryPanel } from "./components/RecoveryPanel";
@@ -48,12 +53,17 @@ export function App() {
   const connectedAccount = useConnectedAccount(walletAddress, true, rpcOverrides);
   const diagnosis = useDiagnosis(account, rpcOverrides);
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
+  // Every known guardian of this source account (any network, connected or
+  // not). Sending re-reads the source Safe's guardians again.
   // What to move, chosen in Prepare wallets and enforced in Move funds.
-  const items = migrationItems(diagnosis.results, diagnosis.customTokens);
+  // Contents of identified legacy baskets, read in a bounded background queue.
+  const baskets = useBasketContents(diagnosis.account, diagnosis.results, rpcOverrides);
+  const items = migrationItems(diagnosis.results, diagnosis.customTokens, baskets.contents);
   const [selectionState, setSelectionState] = useState<Selection>(() => emptySelection(account));
   const selection = forAccount(selectionState, account);
   const chosen = selectedIds(selection, items);
   const excluded = (id: string) => isExcluded(selection, items, id);
+  const guardians = knownGuardians([...diagnosis.results.map(r => r.snapshot), snapshot], account);
   const rescanning = (id: number) => diagnosis.results.some(r => r.chainId === id && (r.status === "queued" || r.status === "scanning"));
   // A network being rescanned after a transaction keeps its place in Move funds.
   const chosenChains = chains.map(c => c.id).filter(id => [...chosen].some(item => chainOf(item) === id)
@@ -120,7 +130,7 @@ export function App() {
   async function run(task: () => Promise<void>) {
     setBusy(true); setError(""); setNotice("");
     try { await task(); } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(displayError(e, lang));
     } finally { setBusy(false); }
   }
   function resetInspection() {
@@ -144,8 +154,9 @@ export function App() {
     setProgress(old => ({ ...old, accounts: old.accounts.some(a => a.chainId === result.chainId && same(a.address, result.account))
       ? old.accounts : [...old.accounts, { chainId: result.chainId, address: result.account, label: `Account ${short(result.account)}` }].slice(-100) }));
   }
-  function openReview(action: PreparedAction) {
-    if (action.receive) assertSeparateRecipient(action.receive.recipient, walletAddress);
+  function openReview(prepared: PreparedAction) {
+    const action = { ...prepared, forbiddenRecipients: [...prepared.forbiddenRecipients ?? [], ...guardians] };
+    if (action.receive) assertSeparateRecipient(action.receive.recipient, walletAddress, guardians);
     if (uncertain) throw new Error(t("Confira a transação pendente antes de preparar outra.", "Check the pending transaction before preparing another."));
     setReview(action); setReviewed(false);
   }
@@ -155,27 +166,42 @@ export function App() {
     setProgress(old => ({ ...old, accounts: old.accounts.some(a => a.chainId === chainId && same(a.address, found.address))
       ? old.accounts : [...old.accounts, { chainId, address: found.address, label: `${found.version === "EOA" ? "Wallet" : "Safe"} ${short(found.address)}` }].slice(-100) }));
   }
-  function submitted(hash: Hex, expectation?: ReceiptExpectation) {
+  // Persisted before waiting for the receipt, with every expected effect, so a
+  // timeout or reload never leads to an automatic resubmission.
+  const progressRef = useRef(progress); progressRef.current = progress;
+  function record({ chainId: txChain, account: txAccount, label, hash, expectation }: SubmittedRecord) {
     setLastHash(hash); setUncertain(true);
-    const next = { ...progress, transactions: [...progress.transactions, {
-      chainId, account: review?.account ?? address(account), hash, label: review?.label ?? "Transaction", status: "pending" as const, expectation,
+    const next = { ...progressRef.current, transactions: [...progressRef.current.transactions, {
+      chainId: txChain, account: txAccount, hash, label, status: "pending" as const, expectation,
     }].slice(-1000) };
+    progressRef.current = next;
     setProgress(next);
     saveProgress(next);
   }
+  function confirmed(hash: Hex) {
+    setProgress(old => {
+      const next = { ...old, transactions: old.transactions.map(tx => tx.hash === hash ? { ...tx, status: "confirmed" as const } : tx) };
+      progressRef.current = next;
+      return next;
+    });
+    setUncertain(false); setLastHash(undefined);
+  }
+  function submitted(hash: Hex, expectation?: ReceiptExpectation) {
+    record({ chainId, account: review?.account ?? address(account), hash, label: review?.label ?? "Transaction", expectation });
+  }
   async function execute(approveOnly = false) {
     if (!review || !reviewed || uncertain) return;
-    if (review.receive) assertSeparateRecipient(review.receive.recipient, walletAddress);
+    if (review.receive) assertSeparateRecipient(review.receive.recipient, walletAddress, guardians);
     const receipt = approveOnly ? await approveSafeProposal(requireClient(), await provider(), review, submitted)
       : await sendAction(requireClient(), await provider(), review, submitted);
-    setProgress(old => ({ ...old, transactions: old.transactions.map(tx => tx.hash === receipt.transactionHash ? { ...tx, status: "confirmed" } : tx) }));
-    setUncertain(false); setReview(undefined); setReviewed(false);
+    confirmed(receipt.transactionHash);
+    setReview(undefined); setReviewed(false);
     setNotice(t("Execução confirmada. Atualize as posições para conferir as próximas etapas.", "Execution confirmed. Refresh positions to check the next steps."));
     await refresh();
     diagnosis.rescan(chainId);
   }
   async function prepareTransfer(card = false) {
-    assertSeparateRecipient(destination, walletAddress);
+    assertSeparateRecipient(destination, walletAddress, guardians);
     const safe = requireSnapshot();
     const selectedId = transferId(chainId, token);
     if (!card && excluded(selectedId)) throw new Error(t("Este ativo foi desmarcado em Preparar carteiras. Selecione-o lá para movê-lo.", "This asset was unticked in Prepare wallets. Select it there to move it."));
@@ -193,6 +219,9 @@ export function App() {
     }
   }
   const explorer = chain.blockExplorers?.default.url;
+  // Card withdrawals leave the card Safe; other transfers leave the source account.
+  const transferProblem = destinationError(destination, tab === "card" ? cardDelay?.card ?? account : snapshot?.address ?? account, walletAddress, guardians);
+  const investProblem = destination.trim() ? destinationError(destination, snapshot?.address ?? account, walletAddress, guardians) : undefined;
   const visiblePositions = positions.filter(p => activeItem?.id === positionId(chainId, p.product.id) && !excluded(activeItem.id));
   function openAsset(item: MigrationItem, result: NetworkDiagnosis) {
     if (!chosen.has(item.id)) return;
@@ -265,7 +294,7 @@ export function App() {
             wallet={walletAddress} lang={lang} busy={busy || connectedAccount?.status === "loading"} results={diagnosis.results} overrides={rpcOverrides}
             setRpc={(id, value) => { resetInspection(); setRpcOverrides(old => ({ ...old, [id]: value })); }}
             rescan={diagnosis.rescan} retryPending={diagnosis.retryPending} open={openDiagnosis} custom={diagnosis.customTokens} addCustom={diagnosis.addCustomToken}
-            removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken}
+            removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} baskets={baskets}
             recovery={step === 1 && snapshot?.passkey === "detected" ? <RecoveryPanel snapshot={snapshot} wallet={walletAddress} lang={lang} busy={busy} owner={owner} setOwner={setOwner}
               networkIds={diagnosis.results.filter(r => r.snapshot?.passkey === "detected").map(r => r.chainId)}
               selectNetwork={id => { const result = diagnosis.results.find(r => r.chainId === id); if (result) openDiagnosis(result, 1); }}
@@ -281,18 +310,16 @@ export function App() {
           {uncertain && <div className="message warning" role="alert">
             <strong>{t("Uma transação foi enviada. Confira o resultado antes de repetir.", "A transaction was submitted. Check its result before repeating.")}</strong>
             {lastHash && <><p className="mono">{lastHash}</p><button className="outline" disabled={busy} onClick={() => run(async () => {
-              const record = progress.transactions.find(tx => tx.hash === lastHash);
+              const record = progressRef.current.transactions.find(tx => tx.hash === lastHash);
               if (!record) throw new Error("Pending transaction record not found");
               const receiptClient = publicClient(chainById(record.chainId), rpcFor(record.chainId, rpcOverrides));
               await assertChain(receiptClient, record.chainId);
               const receipt = await receiptClient.getTransactionReceipt({ hash: lastHash });
-              if (receipt.status === "success") {
-                if (record.expectation?.safe) safeReceiptSucceeded(receipt.logs, record.expectation.safe, record.expectation.safeHash);
-                if (record.expectation?.receive) verifyTokenReceipt(receipt, record.expectation.receive);
-              }
+              // Same full verification as an awaited receipt: Safe hash, every token and queue entry.
+              if (receipt.status === "success") verifyReceipt(receipt, record.expectation ?? {});
               setNotice(`${t("Recibo", "Receipt")}: ${receipt.status}. ${t("Atualize a conta e confira o resultado da operação.", "Refresh the account and verify the operation result.")}`);
               setProgress(old => ({ ...old, transactions: old.transactions.map(tx => tx.hash === lastHash ? { ...tx, status: receipt.status === "success" ? "confirmed" : "reverted" } : tx) }));
-              const other = progress.transactions.find(tx => tx.hash !== lastHash && tx.status === "pending");
+              const other = progressRef.current.transactions.find(tx => tx.hash !== lastHash && tx.status === "pending");
               setUncertain(Boolean(other)); setLastHash(other?.hash); setReview(undefined);
               if (same(record.account, account)) diagnosis.rescan(record.chainId);
               if (record.chainId === chainId && snapshot) await refresh();
@@ -301,18 +328,22 @@ export function App() {
           {step === 2 && <PrepareMigration lang={lang} busy={busy} account={account} wallet={walletAddress} results={diagnosis.results} items={items}
             selection={selection} select={(ids, value) => setSelectionState(old => setSelected(forAccount(old, account), items, ids, value))} overrides={rpcOverrides}
             destination={destination} setDestination={setDestination} rescan={diagnosis.rescan} addCustom={diagnosis.addCustomToken} retryCustom={diagnosis.retryCustomToken}
-            run={run} connect={() => goToStep(0)} next={() => {
+            run={run} connect={() => goToStep(0)} guardians={guardians} retryBasket={id => baskets.retry([id])} next={() => {
               const target = chosenChains.includes(chainId) ? chainId : chosenChains[0];
               const result = diagnosis.results.find(r => r.chainId === target);
               if (result) openDiagnosis(result, 3, items.find(item => chosen.has(item.id) && item.chainId === target)?.tab);
             }} />}
           {(step === 0 || step === 2) && <CardAssetForm key={account} lang={lang} disabled={busy || !diagnosis.account} add={diagnosis.addCard} />}
-          {step === 3 && <section className="panel compact">
-            <p className="eyebrow">{t("PASSO 2 / MOVER O DINHEIRO", "STEP 2 / MOVE FUNDS")}</p>
-            <h2>{t("Retire os ativos, no seu ritmo.", "Withdraw assets at your pace.")}</h2>
-            <p>{t("Escolha de onde retirar. Alguns investimentos e o cartão têm uma espera antes de concluir. Revise cada operação e mantenha gás para as próximas etapas.", "Choose where to withdraw from. Some investments and the card require a waiting period. Review each operation and keep gas for the next steps.")}</p>
-            <button type="button" className="text-button" disabled={busy} onClick={() => { setActiveItem(undefined); goToStep(2); }}>{t("Editar seleção", "Edit selection")}</button>
-            <AssetTable lang={lang} busy={busy} ready={diagnosis.results.length > 0} results={diagnosis.results} custom={diagnosis.customTokens} selected={chosen}
+          {step === 3 && diagnosis.account && <BatchMigration lang={lang} busy={busy} run={run} account={diagnosis.account} wallet={walletAddress} items={items} chosen={chosen}
+            destination={destination} guardians={guardians} overrides={rpcOverrides} uncertain={uncertain} provider={provider} baskets={baskets}
+            onSubmitted={record} onConfirmed={(id, hash) => { confirmed(hash); diagnosis.rescan(id); }}
+            openItem={item => { const result = diagnosis.results.find(r => r.chainId === item.chainId); if (result) openAsset(item, result); }}
+            editSelection={() => { setActiveItem(undefined); goToStep(2); }} />}
+          {step === 3 && <section className="panel compact individual-withdrawals">
+            <p className="eyebrow">{t("ALTERNATIVA / UM ATIVO POR VEZ", "ALTERNATIVE / ONE ASSET AT A TIME")}</p>
+            <h3>{t("Ou retire individualmente", "Or withdraw individually")}</h3>
+            <p className="small">{t("Cada linha abre sua própria retirada, com revisão e transação separadas. Use para contas antigas sem Safe, itens que exigem etapas no protocolo, pedidos do cartão e resgates em andamento.", "Each row opens its own withdrawal with a separate review and transaction. Use it for legacy accounts without a Safe, items needing protocol steps, card requests and redemptions in progress.")}</p>
+            <AssetTable lang={lang} busy={busy} ready={diagnosis.results.length > 0} results={diagnosis.results} custom={diagnosis.customTokens} selected={chosen} baskets={baskets}
               open={openDiagnosis} openItem={openAsset} addCustom={diagnosis.addCustomToken} removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} />
           </section>}
           {step === 3 && activeItem && <section className="panel compact active-asset"><div className="network-cell"><ChainLogo id={activeItem.chainId} /><ItemText item={activeItem} lang={lang} /></div><button className="text-button" disabled={busy} onClick={() => { setActiveItem(undefined); setReview(undefined); setReviewed(false); }}>{t("Fechar detalhes", "Close details")}</button></section>}
@@ -332,16 +363,20 @@ export function App() {
             {!(tab === "card" && activeItem.pending) && <><div className="grid two"><Field label={t("Token ERC-20 (vazio = moeda nativa)", "ERC-20 token (empty = native coin)")}><input disabled={busy} value={token} readOnly placeholder={`0x… / ${chain.nativeCurrency.symbol}`} /></Field>
               <Field label={t("Quantidade", "Amount")}><input disabled={busy} value={amount} inputMode="decimal" onChange={e => setAmount(e.target.value)} placeholder="0.00" /></Field></div>
             <p className="small muted">{t("Use uma carteira de destino diferente da carteira conectada.", "Use a destination wallet different from the connected wallet.")}</p>
-            <Field label={t("Endereço de destino", "Destination address")}><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" /></Field>
+            <Field label={t("Endereço de destino", "Destination address")}><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off"
+              aria-invalid={!!destination && !!transferProblem} aria-describedby={destination && transferProblem ? "transfer-destination-error" : undefined} /></Field>
+            {destination && transferProblem && <DestinationMessage id="transfer-destination-error" problem={transferProblem} lang={lang} />}
             <p className="small muted">{t("O envio acontece nesta rede, sem conversão. Para começar, escolha uma pequena quantidade.", "The transfer stays on this network, with no conversion. Start with a small amount.")}</p>
-            <button disabled={busy || !snapshot || (tab === "card" && !cardDelay)} onClick={() => run(() => prepareTransfer(tab === "card"))}>{tab === "card" ? t("Revisar retirada com espera", "Review delayed withdrawal") : t("Revisar transferência", "Review transfer")}</button></>}
+            <button disabled={busy || !snapshot || (tab === "card" && !cardDelay) || !!transferProblem} onClick={() => run(() => prepareTransfer(tab === "card"))}>{tab === "card" ? t("Revisar retirada com espera", "Review delayed withdrawal") : t("Revisar transferência", "Review transfer")}</button></>}
           </section>}
           {step === 3 && activeItem && tab === "invest" && <section className="panel">
             <p className="eyebrow">{t("POSIÇÕES E RESGATES", "POSITIONS & REDEMPTIONS")}</p><h2>{t("Saia pelo contrato do investimento.", "Exit through the investment contract.")}</h2>
             <p>{t("Confira esta posição. Resgates em etapas continuam aqui quando a espera terminar.", "Review this position. Multi-step redemptions can be resumed here after the waiting period.")}</p>
             <button className="outline" disabled={busy || !snapshot} onClick={() => { const result = diagnosis.results.find(r => r.chainId === chainId); if (result) openAsset(activeItem, result); }}>{t("Atualizar saldo", "Refresh balance")}</button>
             <div className="grid two"><Field label={t("Quantidade de cotas para resgatar", "Shares to redeem")}><input disabled={busy} value={amount} onChange={e => setAmount(e.target.value)} placeholder={t("Vazio = disponível", "Empty = available")} inputMode="decimal" /></Field>
-              <Field label={t("Destino (vazio = esta Safe)", "Destination (empty = this Safe)")}><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" /></Field></div>
+              <Field label={t("Destino (vazio = esta Safe)", "Destination (empty = this Safe)")}><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off"
+                aria-invalid={!!investProblem} aria-describedby={investProblem ? "invest-destination-error" : undefined} /></Field></div>
+            {investProblem && <DestinationMessage id="invest-destination-error" problem={investProblem} lang={lang} />}
             {positions.length > visiblePositions.length && <p className="small muted">{t("Posições desmarcadas em Preparar carteiras ficam ocultas.", "Positions unticked in Prepare wallets are hidden.")}</p>}
             {visiblePositions.map(p => <article className="position" key={p.product.id}>
               <div className="section-title"><h3>{p.product.name}</h3><strong>{formatUnits(p.balance, p.decimals)}</strong></div>
@@ -349,12 +384,12 @@ export function App() {
               {p.product.note && <p className="note">{p.product.note}</p>}
               {p.available !== undefined && <p>{t("Disponível para resgate agora", "Redeemable now")}: {formatUnits(p.available, p.decimals)}</p>}
               {p.pending !== undefined && <p>{t("Cotas aguardando", "Pending shares")}: {formatUnits(p.pending, p.decimals)} · {t("Disponíveis para claim", "Claimable")}: {formatUnits(p.claimable ?? 0n, p.decimals)}</p>}
-              <div className="row"><button className="outline" disabled={busy || p.balance === 0n} onClick={() => run(async () => {
+              <div className="row"><button className="outline" disabled={busy || p.balance === 0n || !!investProblem} onClick={() => run(async () => {
                 const safe = requireSnapshot();
-                if (destination) assertSeparateRecipient(destination, walletAddress);
+                if (destination) assertSeparateRecipient(destination, walletAddress, guardians);
                 openReview(await redeemPosition(requireClient(), safe, p.product, amount ? parseAmount(amount, p.decimals) : p.available !== undefined && p.available < p.balance ? p.available : p.balance, destination || safe.address));
               })}>{p.product.kind === "receipt" ? t("Transferir posição", "Transfer position") : t("Revisar resgate", "Review redemption")}</button>
-                {!["staking", "receipt"].includes(p.product.kind) && <button className="text-button" disabled={busy || !destination || !p.balance} onClick={() => run(async () => {
+                {!["staking", "receipt"].includes(p.product.kind) && <button className="text-button" disabled={busy || !destination || !p.balance || !!investProblem} onClick={() => run(async () => {
                   const safe = requireSnapshot(), recipient = address(destination);
                   if (same(recipient, safe.address)) throw new Error("Choose an external destination for the position transfer");
                   const units = amount ? parseAmount(amount, p.decimals) : p.balance;
@@ -393,7 +428,7 @@ export function App() {
             {positionFailures.length > 0 && <details className="message warning"><summary>{t("Consulta parcial — posições não verificadas", "Partial scan — unverified positions")} ({positionFailures.length})</summary>{positionFailures.map(f => <p key={f} className="small">{f}</p>)}</details>}
           </section>}
           {step === 3 && activeItem && tab === "legacy" && excluded(activeItem.id) && <section className="panel compact"><p className="note">{t("As cestas antigas desta rede não estão selecionadas. Selecione-as em Preparar carteiras para movê-las.", "Legacy baskets on this network are not selected. Select them in Prepare wallets to move them.")}</p></section>}
-          {step === 3 && activeItem && tab === "legacy" && !excluded(activeItem.id) && <LegacyPanel initialNft={activeItem.basketId} key={`${activeItem.id}:${snapshot?.address ?? ""}:${rpc}`} client={client} snapshot={snapshot} busy={busy} lang={lang} run={run} review={openReview} invalidate={() => setReview(undefined)} />}
+          {step === 3 && activeItem && tab === "legacy" && !excluded(activeItem.id) && <LegacyPanel contents={activeItem.basketId !== undefined ? <BasketContentsView contents={baskets.contents[String(activeItem.basketId)]} lang={lang} retry={() => baskets.retry([activeItem.basketId!])} /> : undefined} initialNft={activeItem.basketId} key={`${activeItem.id}:${snapshot?.address ?? ""}:${rpc}`} client={client} snapshot={snapshot} busy={busy} lang={lang} run={run} review={openReview} invalidate={() => setReview(undefined)} />}
           {review && <section className="panel review" aria-label={t("Revisão da transação", "Transaction review")}>
             <p className="eyebrow">{t("ANTES DE ASSINAR", "BEFORE YOU SIGN")}</p><h2>{review.label}</h2>
             <dl><dt>{t("Rede", "Network")}</dt><dd>{chain.name} ({review.chainId})</dd><dt>{t("Conta", "Account")}</dt><dd className="mono">{review.account}</dd>

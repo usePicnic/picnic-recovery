@@ -35,6 +35,7 @@ export type AccountSnapshot = {
   nativeBalance: bigint;
   warnings: string[];
 };
+export type Receive = { token: Address | null; recipient: Address; minimum: bigint };
 export type PreparedAction = {
   kind: "direct" | "safe";
   chainId: number;
@@ -43,11 +44,24 @@ export type PreparedAction = {
   label: string;
   details?: string[];
   safeNonce?: bigint;
+  // Safe operation: 0 = CALL (default). 1 = DELEGATECALL, only ever to an
+  // approved MultiSendCallOnly with exactly `batch.calls` as CALL children.
+  operation?: 0 | 1;
+  batch?: { calls: Call[]; labels: string[] };
   recovery?: { module: Address; nonce: bigint; pendingAfter: bigint };
   expectedOwner?: Address;
   expectedSender?: Address;
   approval?: { module: Address; nonce: bigint; owner: Address };
-  receive?: { token: Address | null; recipient: Address; minimum: bigint };
+  receive?: Receive;
+  // Further effects a batch must prove: every ERC-20/native receipt and every
+  // card queue entry. `receive` stays the single-action form.
+  receives?: Receive[];
+  queued?: { module: Address; txHash: Hex }[];
+  // Recipients that must never receive funds (e.g. known recovery guardians).
+  // Fresh guardians of the source Safe are added again immediately before sending.
+  forbiddenRecipients?: Address[];
+  // Includes delayed destinations whose funds are only queued in this action.
+  destinations?: Address[];
   revalidate?: () => Promise<void>;
 };
 export type StoredAccount = { address: Address; chainId: number; label: string };

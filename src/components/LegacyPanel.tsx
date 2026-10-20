@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { formatUnits, type PublicClient } from "viem";
 import { address } from "../core/client";
 import { discoverBaskets, inspectBasket, withdrawBasketNative, withdrawBasketToken } from "../core/legacy";
 import { legacyCatalogue, resolveLegacyAsset, legacyBalance, exitLegacyBasket, underlyingAssets, withdrawTetu, type LegacyAsset, type LegacyCatalogue } from "../core/legacy-routes";
 import type { AccountSnapshot, PreparedAction } from "../core/types";
 
-type Props = { initialNft?: bigint; client?: PublicClient; snapshot?: AccountSnapshot; busy: boolean; lang: "pt" | "en";
+type Props = { contents?: ReactNode; initialNft?: bigint; client?: PublicClient; snapshot?: AccountSnapshot; busy: boolean; lang: "pt" | "en";
   run: (task: () => Promise<void>) => Promise<void>; review: (action: PreparedAction) => void; invalidate: () => void };
-export function LegacyPanel({ initialNft, client, snapshot, busy, lang, run, review, invalidate }: Props) {
+export function LegacyPanel({ contents, initialNft, client, snapshot, busy, lang, run, review, invalidate }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [nft, setNft] = useState(initialNft?.toString() ?? "");
   const [wallet, setWallet] = useState("");
@@ -28,6 +28,7 @@ export function LegacyPanel({ initialNft, client, snapshot, busy, lang, run, rev
   return <section className="panel" onChange={invalidate}>
     <p className="eyebrow">{t("LEGADO", "LEGACY")}</p><h2>{t("Retire de uma cesta antiga.", "Withdraw from a legacy basket.")}</h2>
     <p>{t("A Safe deve ser proprietária do NFT. Retire uma camada de investimento por vez, sem converter os ativos.", "The Safe must own the NFT. Exit one investment layer at a time without converting assets.")}</p>
+    {contents}
     {initialNft === undefined && <details><summary>{t("Encontrar NFTs desta Safe", "Find this Safe's NFTs")}</summary>
       <label className="field"><span>{t("ID inicial", "Starting ID")}</span><input disabled={busy} value={start.toString()} inputMode="numeric" onChange={e => { if (/^\d*$/.test(e.target.value)) setStart(BigInt(e.target.value || "0")); }} /></label>
       <button className="outline" disabled={busy || !snapshot} onClick={() => run(async () => {

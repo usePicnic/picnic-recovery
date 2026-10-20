@@ -1,14 +1,15 @@
 import {
-  concatHex, encodeFunctionData, getAddress, pad, zeroAddress,
-  decodeEventLog, createWalletClient, custom,
+  concatHex, encodeFunctionData, getAddress, pad, zeroAddress, createWalletClient, custom,
   type Address, type Hex, type PublicClient, type EIP1193Provider,
 } from "viem";
-import { safeAbi, recoveryAbi, erc20Abi, legacySafeEvents } from "./abi";
-import { verifyTokenReceipt, type ReceiptExpectation } from "./receipts";
+import { safeAbi, recoveryAbi, erc20Abi } from "./abi";
+import { verifyReceipt, safeReceiptSucceeded, type ReceiptExpectation } from "./receipts";
 import { address, assertChain, same } from "./client";
 import { assertSupportedSafe, inspectAccount, inspectRecovery } from "./inspect";
-import type { AccountSnapshot, Call, PreparedAction } from "./types";
+import { assertBatchPayload, multiSendCall, verifyMultiSendRuntime } from "./multisend";
+import type { AccountSnapshot, Call, PreparedAction, Receive } from "./types";
 
+export { safeReceiptSucceeded };
 export function transferCall(token: Address | null, destination: string, amount: bigint): Call {
   const to = address(destination);
   if (amount <= 0n) throw new Error("Amount must be greater than zero");
@@ -21,6 +22,18 @@ export function safeAction(snapshot: AccountSnapshot, call: Call, label: string)
   assertSupportedSafe(snapshot);
   return { kind: "safe", chainId: snapshot.chainId, account: snapshot.address, call,
     safeNonce: snapshot.nonce, label };
+}
+// One Safe transaction: DELEGATECALL to an approved MultiSendCallOnly whose
+// CALL children are exactly `calls`. A single child stays a plain CALL.
+// An EOA has no delegatecall context: callers must use individual actions.
+export function safeBatchAction(snapshot: AccountSnapshot, multisend: Address, calls: Call[], labels: string[], label: string): PreparedAction {
+  if (snapshot.version === "EOA") throw new Error("A legacy EOA account cannot batch; use individual withdrawals");
+  assertSupportedSafe(snapshot);
+  if (!calls.length || calls.length !== labels.length) throw new Error("Invalid batch");
+  if (calls.length === 1) return { ...safeAction(snapshot, calls[0], label), operation: 0, batch: { calls, labels } };
+  const call = multiSendCall(snapshot.chainId, multisend, calls);
+  assertBatchPayload(snapshot.chainId, snapshot.address, call, calls);
+  return { kind: "safe", chainId: snapshot.chainId, account: snapshot.address, call, operation: 1, batch: { calls, labels }, safeNonce: snapshot.nonce, label };
 }
 export function recoveryAction(
   snapshot: AccountSnapshot, module: Address, mode: "approve" | "start" | "finalize" | "cancel", proposedOwner?: string,
@@ -62,46 +75,39 @@ export const safeTypes = { SafeTx: [
   { name: "gasPrice", type: "uint256" }, { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" },
   { name: "nonce", type: "uint256" },
 ] } as const;
-const safeArgs = (call: Call) => [
-  call.to, call.value, call.data, 0, 0n, 0n, 0n, zeroAddress, zeroAddress,
+export const operationOf = (action: PreparedAction) => action.operation ?? 0;
+// The operation is part of both the Safe hash and execTransaction calldata.
+export const safeArgs = (call: Call, operation: 0 | 1 = 0) => [
+  call.to, call.value, call.data, operation, 0n, 0n, 0n, zeroAddress, zeroAddress,
 ] as const;
 export async function safeHash(client: PublicClient, action: PreparedAction): Promise<Hex> {
   if (action.kind !== "safe" || action.safeNonce === undefined) throw new Error("Not a Safe proposal");
   return client.readContract({ address: action.account, abi: safeAbi, functionName: "getTransactionHash",
-    args: [...safeArgs(action.call), action.safeNonce] });
+    args: [...safeArgs(action.call, operationOf(action)), action.safeNonce] });
 }
-export async function safeExecution(client: PublicClient, action: PreparedAction, sender: Address, ownerSignature?: Hex): Promise<Call> {
+// Safe signature encoding v=1 ("pre-validated"): valid when msg.sender is that
+// owner, or when the owner registered the hash on-chain with approveHash.
+export const prevalidatedSignature = (owner: Address) => concatHex([pad(owner, { size: 32 }), pad("0x", { size: 32 }), "0x01"]);
+// `senderSigns`: the sender's approval is the typed-data signature, or (when
+// omitted for a threshold-1 owner) the pre-validated msg.sender signature.
+export async function safeExecution(client: PublicClient, action: PreparedAction, sender: Address, ownerSignature?: Hex, senderIsOwnerExecutor = false): Promise<Call> {
   const snapshot = await inspectAccount(client, action.account, action.chainId);
   assertSupportedSafe(snapshot);
   if (snapshot.nonce !== action.safeNonce) throw new Error("Safe nonce changed. Inspect and review again");
   const hash = await safeHash(client, action);
+  const senderApproves = (owner: Address) => same(owner, sender) && (!!ownerSignature || senderIsOwnerExecutor);
   const allowed: Address[] = [];
   for (const owner of snapshot.owners) {
-    if ((same(owner, sender) && ownerSignature) || await client.readContract({
+    if (senderApproves(owner) || await client.readContract({
       address: action.account, abi: safeAbi, functionName: "approvedHashes", args: [owner, hash],
     }) !== 0n) allowed.push(owner);
   }
   if (BigInt(allowed.length) < snapshot.threshold) throw new Error("More owner approvals are required. Approve this exact proposal with the other owners");
   const signatures = concatHex(allowed.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
     .slice(0, Number(snapshot.threshold))
-    .map(owner => same(owner, sender) && ownerSignature ? ownerSignature : concatHex([pad(owner, { size: 32 }), pad("0x", { size: 32 }), "0x01"])));
+    .map(owner => same(owner, sender) && ownerSignature ? ownerSignature : prevalidatedSignature(owner)));
   return { to: action.account, value: 0n,
-    data: encodeFunctionData({ abi: safeAbi, functionName: "execTransaction", args: [...safeArgs(action.call), signatures] }) };
-}
-export function safeReceiptSucceeded(logs: readonly { address: Address; data: Hex; topics: readonly Hex[] }[], safe: Address, expectedHash?: Hex) {
-  let success = false;
-  for (const log of logs) {
-    if (!same(log.address, safe)) continue;
-    try {
-      const event = decodeEventLog({ abi: log.topics.length === 1 ? legacySafeEvents : safeAbi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
-      if ((event.eventName === "ExecutionSuccess" || event.eventName === "ExecutionFailure") && expectedHash && event.args.txHash !== expectedHash) continue;
-      if (event.eventName === "ExecutionFailure") throw new Error("Safe execution failed");
-      if (event.eventName === "ExecutionSuccess") success = true;
-    } catch (error) {
-      if (error instanceof Error && error.message === "Safe execution failed") throw error;
-    }
-  }
-  if (!success) throw new Error("Receipt does not confirm Safe execution");
+    data: encodeFunctionData({ abi: safeAbi, functionName: "execTransaction", args: [...safeArgs(action.call, operationOf(action)), signatures] }) };
 }
 export const recoveryTypes = {
   ExecuteRecovery: [
@@ -132,19 +138,62 @@ async function assertFresh(client: PublicClient, action: PreparedAction) {
     }
   }
 }
+export const actionReceives = (action: PreparedAction): Receive[] => [...action.receive ? [action.receive] : [], ...action.receives ?? []];
+export function assertAllowedRecipients(action: PreparedAction, forbidden: readonly string[]) {
+  const blocked = [...actionReceives(action).map(effect => effect.recipient), ...action.destinations ?? []]
+    .find(recipient => forbidden.some(address => same(address, recipient)));
+  if (blocked) throw new Error("The destination is a recovery guardian of this account. Choose a wallet that is not a guardian");
+}
+// Static payload rules, checked when reviewing and again before sending.
+export function assertActionShape(action: PreparedAction) {
+  const operation = operationOf(action);
+  if (operation !== 0 && operation !== 1) throw new Error("Unsupported Safe operation");
+  if (operation === 1) {
+    if (action.kind !== "safe" || !action.batch) throw new Error("DELEGATECALL is only used for a reviewed Safe batch");
+    assertBatchPayload(action.chainId, action.account, action.call, action.batch.calls);
+  }
+}
+export function receiptExpectation(action: PreparedAction, hash?: Hex): ReceiptExpectation {
+  const tokens = (action.receives ?? []).filter((r): r is Receive & { token: Address } => !!r.token);
+  const native = (action.receives ?? []).filter(r => !r.token);
+  return {
+    ...(action.kind === "safe" ? { safe: action.account, safeHash: hash } : {}),
+    ...(operationOf(action) === 1 ? { operation: 1 as const, multisend: action.call.to, calls: action.batch!.calls.length } : {}),
+    ...(action.receive?.token ? { receive: { token: action.receive.token, recipient: action.receive.recipient, minimum: action.receive.minimum.toString() } } : {}),
+    ...(tokens.length ? { receives: tokens.map(r => ({ token: r.token, recipient: r.recipient, minimum: r.minimum.toString() })) } : {}),
+    ...(native.length && action.kind === "safe" ? { native: native.map(r => ({ recipient: r.recipient, minimum: r.minimum.toString() })) } : {}),
+    ...(action.queued?.length ? { queued: action.queued } : {}),
+  };
+}
+// Aggregate so two children paying the same asset to one recipient are summed.
+function balanceEffects(action: PreparedAction) {
+  const map = new Map<string, Receive>();
+  for (const effect of actionReceives(action)) {
+    const key = `${effect.token?.toLowerCase() ?? "native"}:${effect.recipient.toLowerCase()}`;
+    const entry = map.get(key);
+    map.set(key, entry ? { ...entry, minimum: entry.minimum + effect.minimum } : effect);
+  }
+  return [...map.values()];
+}
+export type SendHooks = { onSubmitted: (hash: Hex, expectation?: ReceiptExpectation) => void; onSigning?: (stage: "signature" | "transaction") => void };
 export async function sendAction(
   client: PublicClient, provider: EIP1193Provider, action: PreparedAction,
-  onSubmitted: (hash: Hex, expectation?: ReceiptExpectation) => void,
+  hooks: SendHooks["onSubmitted"] | SendHooks,
 ) {
+  const { onSubmitted, onSigning } = typeof hooks === "function" ? { onSubmitted: hooks, onSigning: undefined } : hooks;
+  assertActionShape(action);
+  assertAllowedRecipients(action, action.forbiddenRecipients ?? []);
   const { wallet, sender } = await connectedWallet(provider, action.chainId);
   if (action.expectedSender && !same(sender, action.expectedSender)) throw new Error("Connected wallet does not control the selected account");
   await assertFresh(client, action);
   await action.revalidate?.();
+  if (operationOf(action) === 1) await verifyMultiSendRuntime(client, action.chainId, action.call.to);
   let call = action.call;
   if (action.approval) {
     const { module, owner, nonce } = action.approval;
     const state = await inspectRecovery(client, action.account, module);
     if (!state.guardians.some(g => same(g, sender))) throw new Error("Connected wallet is not a recovery guardian");
+    onSigning?.("signature");
     const signature = await wallet.signTypedData({
       account: sender, domain: { name: "Social Recovery Module", version: "0.0.1", chainId: action.chainId, verifyingContract: module },
       types: recoveryTypes, primaryType: "ExecuteRecovery",
@@ -158,35 +207,47 @@ export async function sendAction(
     }) };
   } else if (action.kind === "safe") {
     const snapshot = await inspectAccount(client, action.account, action.chainId);
+    assertSupportedSafe(snapshot);
     if (snapshot.nonce !== action.safeNonce) throw new Error("Safe nonce changed. Inspect and review again");
-    const signature = snapshot.owners.some(o => same(o, sender)) ? await wallet.signTypedData({
-      account: sender, domain: { chainId: action.chainId, verifyingContract: action.account },
-      primaryType: "SafeTx", types: safeTypes,
-      message: { ...action.call, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: zeroAddress, refundReceiver: zeroAddress, nonce: action.safeNonce! },
-    }) : undefined;
-    call = await safeExecution(client, action, sender, signature);
+    // Fresh guardians of this exact Safe, even when they are not connected.
+    assertAllowedRecipients(action, snapshot.recoveries.flatMap(r => r.guardians));
+    const owner = snapshot.owners.some(o => same(o, sender));
+    // Threshold 1 and the connected wallet is a current owner: it sends the
+    // execTransaction itself, so the pre-validated msg.sender signature
+    // suffices and the wallet shows only the transaction. Multi-owner Safes keep
+    // the explicit typed-data signature plus on-chain approvals of the others.
+    const executor = owner && snapshot.threshold === 1n;
+    let signature: Hex | undefined;
+    if (owner && !executor) {
+      onSigning?.("signature");
+      signature = await wallet.signTypedData({
+        account: sender, domain: { chainId: action.chainId, verifyingContract: action.account },
+        primaryType: "SafeTx", types: safeTypes,
+        message: { ...action.call, operation: operationOf(action), safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: zeroAddress, refundReceiver: zeroAddress, nonce: action.safeNonce! },
+      });
+    }
+    call = await safeExecution(client, action, sender, signature, executor);
   }
-  if (action.kind === "safe") await client.call({ account: action.account, ...action.call });
+  // A direct eth_call of a multisend outside the Safe's delegatecall context
+  // would simulate the wrong thing; batches are simulated as the whole Safe execution.
+  if (action.kind === "safe" && operationOf(action) === 0) await client.call({ account: action.account, ...action.call });
   await client.call({ account: sender, ...call });
   const gas = await client.estimateGas({ account: sender, ...call });
-  const balanceBefore = action.receive ? await receivedBalance(client, action.receive) : undefined;
+  const effects = balanceEffects(action);
+  const before = await Promise.all(effects.map(effect => receivedBalance(client, effect)));
   await assertFresh(client, action);
   await action.revalidate?.();
-  const expectation: ReceiptExpectation = {
-    ...(action.kind === "safe" ? { safe: action.account, safeHash: await safeHash(client, action) } : {}),
-    ...(action.receive?.token ? { receive: { token: action.receive.token, recipient: action.receive.recipient, minimum: action.receive.minimum.toString() } } : {}),
-  };
+  const expectation = receiptExpectation(action, action.kind === "safe" ? await safeHash(client, action) : undefined);
   if (await wallet.getChainId() !== action.chainId || !(await wallet.getAddresses()).some(a => same(a, sender))) throw new Error("Wallet account or network changed");
+  onSigning?.("transaction");
   const hash = await wallet.sendTransaction({ account: sender, chain: null, ...call, gas: gas * 120n / 100n });
   onSubmitted(hash, expectation); // Persist before waiting: a timeout must not trigger a retry.
   const receipt = await client.waitForTransactionReceipt({ hash, confirmations: 2, timeout: 180_000 });
-  if (receipt.status !== "success") throw new Error("Transaction reverted");
-  if (action.kind === "safe") safeReceiptSucceeded(receipt.logs, action.account, expectation.safeHash);
-  if (expectation.receive) verifyTokenReceipt(receipt, expectation.receive);
-  if (action.receive && balanceBefore !== undefined) {
-    let delta = await receivedBalance(client, action.receive) - balanceBefore;
-    if (!action.receive.token && same(action.receive.recipient, sender)) delta += receipt.gasUsed * receipt.effectiveGasPrice;
-    if (delta < action.receive.minimum) throw new Error("Transaction confirmed, but expected funds were not received. Inspect before retrying");
+  verifyReceipt(receipt, expectation);
+  for (const [i, effect] of effects.entries()) {
+    let delta = await receivedBalance(client, effect) - before[i];
+    if (!effect.token && same(effect.recipient, sender)) delta += receipt.gasUsed * receipt.effectiveGasPrice;
+    if (delta < effect.minimum) throw new Error("Transaction confirmed, but expected funds were not received. Inspect before retrying");
   }
   if (action.label === "Finalize recovery") {
     const snapshot = await inspectAccount(client, action.account, action.chainId);
@@ -198,14 +259,17 @@ export async function sendAction(
   }
   return receipt;
 }
-async function receivedBalance(client: PublicClient, effect: NonNullable<PreparedAction["receive"]>) {
+async function receivedBalance(client: PublicClient, effect: Receive) {
   return effect.token ? client.readContract({ address: effect.token, abi: erc20Abi,
     functionName: "balanceOf", args: [effect.recipient] }) : client.getBalance({ address: effect.recipient });
 }
 export async function approveSafeProposal(client: PublicClient, provider: EIP1193Provider, action: PreparedAction, onSubmitted: (hash: Hex, expectation?: ReceiptExpectation) => void) {
+  assertActionShape(action);
   const { sender } = await connectedWallet(provider, action.chainId);
   const snapshot = await inspectAccount(client, action.account, action.chainId);
   if (!snapshot.owners.some(o => same(o, sender)) || snapshot.nonce !== action.safeNonce) throw new Error("Invalid owner or stale proposal");
+  assertAllowedRecipients(action, [...action.forbiddenRecipients ?? [], ...snapshot.recoveries.flatMap(r => r.guardians)]);
+  if (operationOf(action) === 1) await verifyMultiSendRuntime(client, action.chainId, action.call.to);
   const hash = await safeHash(client, action);
   return sendAction(client, provider, { kind: "direct", chainId: action.chainId, account: action.account,
     label: "Approve Safe proposal", call: { to: action.account, value: 0n,

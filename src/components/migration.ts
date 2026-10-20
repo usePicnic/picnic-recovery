@@ -6,6 +6,8 @@ import { products } from "../catalog/products";
 import { same } from "../core/client";
 import { hasPosition, nextAction, type NetworkDiagnosis, type TokenHolding } from "../core/diagnosis";
 import type { CustomTokenState } from "./useDiagnosis";
+import type { BasketContents } from "../core/basket-contents";
+import type { BatchSource } from "../core/batch";
 
 // One row model for the diagnosis table, the preparation selection and the
 // move-funds table, so what is shown and what is selected always agree.
@@ -22,6 +24,8 @@ export type MigrationItem = {
   id: string; kind: AssetKind; chainId: number; symbol: string; name: string; badge?: AssetBadge; tab: AssetTab; order: number;
   amount?: { value: bigint; decimals?: number }; count?: string; pending?: boolean;
   holding?: TokenHolding; custom?: CustomTokenState; card?: CardDelay; basketId?: bigint; strategy?: MamoPosition;
+  // On-chain contents of an identified basket wallet (read in the background).
+  contents?: BasketContents;
   // Verified holdings and pending requests can be selected for migration.
   selectable: boolean;
 };
@@ -41,7 +45,7 @@ export const chainOf = (id: string) => Number(id.split(":")[0]);
 
 const order = (chainId: number) => chains.findIndex(c => c.id === chainId) * 10;
 
-export function migrationItems(results: readonly NetworkDiagnosis[], custom: readonly CustomTokenState[]): MigrationItem[] {
+export function migrationItems(results: readonly NetworkDiagnosis[], custom: readonly CustomTokenState[], baskets: Readonly<Record<string, BasketContents>> = {}): MigrationItem[] {
   const items = new Map<string, MigrationItem>();
   const add = (item: MigrationItem) => { if (!items.has(item.id)) items.set(item.id, item); };
   for (const result of results) {
@@ -61,7 +65,7 @@ export function migrationItems(results: readonly NetworkDiagnosis[], custom: rea
         amount: { value: token.balance, decimals: token.verifiedDecimals }, holding: product ? undefined : token, order: order(chain.id) + 2, selectable: !!result.snapshot });
     }
     for (const nft of result.basketIds ?? []) add({ id: basketsId(chain.id, nft), kind: "baskets", chainId: chain.id, symbol: `#${nft}`, name: "Picnic", badge: "legacy", tab: "legacy", basketId: nft,
-      count: "1 NFT", order: order(chain.id) + 3, selectable: !!result.snapshot });
+      count: "1 NFT", contents: baskets[String(nft)] && same(baskets[String(nft)].owner, result.account) ? baskets[String(nft)] : undefined, order: order(chain.id) + 3, selectable: !!result.snapshot });
     const remaining = (result.basketCount ?? 0n) - BigInt(result.basketIds?.length ?? 0);
     if (remaining > 0n) add({ id: basketsId(chain.id), kind: "baskets", chainId: chain.id, symbol: "", name: "", badge: "legacy", tab: "legacy",
       count: remaining.toString(), order: order(chain.id) + 3, selectable: !!result.snapshot });
@@ -154,4 +158,22 @@ export function readiness(result: NetworkDiagnosis | undefined, wallet: Address 
   if (!gas || gas.status === "loading") return "gas-loading";
   if (gas.status === "error") return "gas-error";
   return gas.balance === 0n ? "fund" : "ready";
+}
+
+// The batch planner's input: exactly the selected rows of one network.
+export function batchSources(items: readonly MigrationItem[], chainId: number): BatchSource[] {
+  return items.filter(item => item.chainId === chainId).map((item): BatchSource => {
+    const label = item.kind === "baskets" ? item.basketId !== undefined ? `Basket #${item.basketId}` : "Unidentified baskets" : item.symbol || item.name;
+    const product = item.kind === "position" ? products.find(p => positionId(p.chainId, p.id) === item.id) : undefined;
+    if (item.kind === "native") return { id: item.id, kind: "native", label };
+    if (product) return { id: item.id, kind: "position", label: product.name, product };
+    if ((item.kind === "token" || item.kind === "custom") && item.holding) return { id: item.id, kind: "token", label, token: item.holding.address as Address };
+    if (item.kind === "mamo" && item.strategy) return { id: item.id, kind: "mamo", label: `MAMO ${item.name}`, strategy: item.strategy.address };
+    if (item.kind === "baskets" && item.basketId !== undefined) return { id: item.id, kind: "basket", label, nftId: item.basketId, contents: item.contents };
+    if (item.kind === "card" && item.card) {
+      if (item.pending) return { id: item.id, kind: "card-queue", label: "Card requests", delay: item.card };
+      return { id: item.id, kind: "card", label: `Card ${label}`, delay: item.card, asset: item.id.endsWith(":native") ? "native" : item.holding!.address as Address };
+    }
+    return { id: item.id, kind: "unidentified", label };
+  });
 }

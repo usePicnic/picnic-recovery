@@ -25,17 +25,44 @@ export function parseProgress(text: string): Progress {
         if (!isAddress(String(e.safe)) || !isHash(String(e.safeHash))) throw new Error("Invalid Safe receipt expectation");
         expectation.safe = String(e.safe) as `0x${string}`; expectation.safeHash = String(e.safeHash) as `0x${string}`;
       }
-      if (e.receive && typeof e.receive === "object") {
-        const effect = e.receive as Record<string, unknown>;
-        if (!isAddress(String(effect.token)) || !isAddress(String(effect.recipient)) || !/^\d{1,78}$/.test(String(effect.minimum))) throw new Error("Invalid token receipt expectation");
-        expectation.receive = { token: String(effect.token) as `0x${string}`, recipient: String(effect.recipient) as `0x${string}`, minimum: String(effect.minimum) };
+      if (e.receive && typeof e.receive === "object") expectation.receive = tokenEffect(e.receive);
+      if (e.operation !== undefined) {
+        if (e.operation !== 1 || !expectation.safeHash || !isAddress(String(e.multisend)) || !Number.isInteger(e.calls) || Number(e.calls) < 1 || Number(e.calls) > 200) throw new Error("Invalid batch receipt expectation");
+        expectation.operation = 1; expectation.multisend = String(e.multisend) as `0x${string}`; expectation.calls = Number(e.calls);
       }
+      const list = (value: unknown) => {
+        if (value === undefined) return undefined;
+        if (!Array.isArray(value) || value.length > 400) throw new Error("Invalid receipt expectation list");
+        return value as unknown[];
+      };
+      const receives = list(e.receives);
+      if (receives) expectation.receives = receives.map(tokenEffect);
+      const native = list(e.native);
+      if (native) {
+        if (!expectation.safeHash) throw new Error("Invalid native receipt expectation");
+        expectation.native = native.map(raw => {
+          const effect = (raw ?? {}) as Record<string, unknown>;
+          if (!isAddress(String(effect.recipient)) || !/^\d{1,78}$/.test(String(effect.minimum))) throw new Error("Invalid native receipt expectation");
+          return { recipient: String(effect.recipient) as `0x${string}`, minimum: String(effect.minimum) };
+        });
+      }
+      const queued = list(e.queued);
+      if (queued) expectation.queued = queued.map(raw => {
+        const entry = (raw ?? {}) as Record<string, unknown>;
+        if (!isAddress(String(entry.module)) || !isHash(String(entry.txHash))) throw new Error("Invalid queue receipt expectation");
+        return { module: String(entry.module) as `0x${string}`, txHash: String(entry.txHash) as `0x${string}` };
+      });
     }
     const status = row.status === "confirmed" || row.status === "reverted" ? row.status : "pending";
     return { hash: String(row.hash) as `0x${string}`, account: String(row.account) as `0x${string}`,
       chainId: Number(row.chainId), label: String(row.label ?? "").slice(0, 160), status, expectation };
   });
   return { version: 1, accounts, transactions };
+}
+function tokenEffect(raw: unknown) {
+  const effect = (raw ?? {}) as Record<string, unknown>;
+  if (!isAddress(String(effect.token)) || !isAddress(String(effect.recipient)) || !/^\d{1,78}$/.test(String(effect.minimum))) throw new Error("Invalid token receipt expectation");
+  return { token: String(effect.token) as `0x${string}`, recipient: String(effect.recipient) as `0x${string}`, minimum: String(effect.minimum) };
 }
 export function readProgress(): Progress {
   try { return parseProgress(localStorage.getItem(KEY) ?? ""); } catch { return emptyProgress(); }
