@@ -6,21 +6,21 @@ import { validateRpc } from "../core/client";
 import { rpcFor, type RpcOverrides } from "./useDiagnosis";
 
 type Props = {
-  account: string; setAccount: (value: string) => void; wallet?: Address; lang: "pt" | "en"; busy: boolean;
+  account: string; setAccount: (value: string) => void; onUseWallet: () => void; wallet?: Address; lang: "pt" | "en"; busy: boolean;
   results: NetworkDiagnosis[]; gas: Record<number, WalletGas>; overrides: RpcOverrides;
   setRpc: (id: number, value: string) => void; rescan: (id?: number) => void;
   open: (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: TokenHolding) => void;
 };
-export function DiagnosisPanel({ account, setAccount, wallet, lang, busy, results, gas, overrides, setRpc, rescan, open }: Props) {
+export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang, busy, results, gas, overrides, setRpc, rescan, open }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const finished = results.filter(r => !["queued", "scanning"].includes(r.status)).length;
   const ordered = [...results].sort((a, b) => Number(hasAssets(b)) - Number(hasAssets(a)) || Number(!!b.snapshot?.recoveries.length) - Number(!!a.snapshot?.recoveries.length) || a.chainId - b.chainId);
   return <section className="panel diagnosis">
     <p className="eyebrow">{t("PASSO 0 / DIAGNÓSTICO AUTOMÁTICO", "STEP 0 / AUTOMATIC DIAGNOSIS")}</p>
     <h2>{t("Uma conta. Todas as redes.", "One account. Every network.")}</h2>
-    <p>{t("Informe o endereço da sua conta Picnic. A consulta começa automaticamente em segundo plano, sem assinatura. Você não precisa escolher uma rede.", "Enter your Picnic account address. Reads start automatically in the background, without a signature. You do not need to pick a network.")}</p>
+    <p>{t("Conecte sua carteira: o endereço é preenchido e a consulta de todas as redes começa automaticamente, sem assinatura. Você também pode informar outro endereço para consultar.", "Connect your wallet: its address is filled in and every network is checked automatically, without a signature. You can also enter another address to inspect.")}</p>
     <label className="field"><span>{t("Endereço da conta Picnic ou carteira antiga", "Picnic account or legacy wallet address")}</span><input value={account} disabled={busy} placeholder="0x…" spellCheck={false} onChange={e => setAccount(e.target.value)} /></label>
-    {wallet && <button className="text-button" disabled={busy} onClick={() => setAccount(wallet)}>{t("Consultar o endereço da carteira conectada", "Inspect the connected wallet address")}</button>}
+    {wallet && account.toLowerCase() !== wallet.toLowerCase() && <button className="text-button" disabled={busy} onClick={onUseWallet}>{t("Usar a carteira conectada", "Use connected wallet")}</button>}
     <p className="small muted">{t("A carteira conectada pode ser só a chave de acesso. Use o endereço da conta que guarda os ativos. Cartões e contas com outro endereço precisam ser consultados também.", "The connected wallet may only be your signing key. Use the account holding the assets. Cards and accounts with a different address must also be inspected.")}</p>
     {results.length > 0 && <>
       <div className="diagnosis-progress" role="status" aria-live="polite">{finished < results.length

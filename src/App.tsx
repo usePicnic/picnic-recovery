@@ -36,6 +36,7 @@ export function App() {
   const [rpcOverrides, setRpcOverrides] = useState<RpcOverrides>({});
   const rpc = rpcFor(chainId, rpcOverrides);
   const [account, setAccount] = useState(() => readProgress().accounts.at(-1)?.address ?? "");
+  const [followWallet, setFollowWallet] = useState(true);
   const [snapshot, setSnapshot] = useState<AccountSnapshot>();
   const [progress, setProgress] = useState(readProgress);
   const connection = useAccount();
@@ -105,6 +106,15 @@ export function App() {
     setSnapshot(undefined); setReview(undefined); setPositions([]); setCoveredRequests([]); setScanProgress(""); setMamoPositions([]); setPositionFailures([]);
     setCardDelay(undefined); setQueue([]); setReviewed(false); setStep(0);
   }
+  function selectAccount(value: string, fromWallet = false) {
+    setFollowWallet(fromWallet); setAccount(value); resetInspection();
+  }
+  useEffect(() => {
+    // Follow the connected address by default, including account switches.
+    // An explicitly selected Safe/card remains the target when its signer connects.
+    if (!walletAddress || !followWallet || busy || same(account, walletAddress)) return;
+    setAccount(walletAddress); resetInspection(); setError(""); setNotice("");
+  }, [walletAddress, followWallet, busy, account]);
   function openDiagnosis(result: NetworkDiagnosis, next: 1 | 2 | 3, assetTab?: string, holding?: TokenHolding) {
     if (!result.snapshot || !same(result.account, account)) return;
     resetInspection(); setChainId(result.chainId); setSnapshot(result.snapshot); setStep(next);
@@ -216,7 +226,7 @@ export function App() {
           </nav>
           <div className="saved"><p className="eyebrow">{t("CONTAS SALVAS", "SAVED ACCOUNTS")}</p>
             {progress.accounts.length === 0 && <p className="muted small">{t("As contas consultadas ficam salvas neste navegador.", "Inspected accounts are saved in this browser.")}</p>}
-            {[...new Map(progress.accounts.map(a => [a.address.toLowerCase(), a])).values()].map(a => <button key={a.address} className="saved-account" disabled={busy} onClick={() => { setAccount(a.address); resetInspection(); }}>{short(a.address)}<small>{t("Diagnosticar em todas as redes", "Diagnose across all networks")}</small></button>)}
+            {[...new Map(progress.accounts.map(a => [a.address.toLowerCase(), a])).values()].map(a => <button key={a.address} className="saved-account" disabled={busy} onClick={() => selectAccount(a.address)}>{short(a.address)}<small>{t("Diagnosticar em todas as redes", "Diagnose across all networks")}</small></button>)}
             <div className="row"><button className="text-button" onClick={() => downloadProgress(progress)}>{t("Exportar progresso", "Export progress")}</button>
               <button className="text-button" disabled={busy} onClick={() => importRef.current?.click()}>{t("Importar", "Import")}</button></div>
             <input ref={importRef} hidden type="file" accept=".json,application/json" onChange={e => {
@@ -226,7 +236,7 @@ export function App() {
           <a className="source-link" href="https://github.com/usePicnic/picnic-recovery" target="_blank" rel="noreferrer">GitHub ↗</a>
         </aside>
         <div className="content">
-          {step === 0 ? <DiagnosisPanel account={account} setAccount={value => { setAccount(value); resetInspection(); }}
+          {step === 0 ? <DiagnosisPanel account={account} setAccount={value => selectAccount(value)} onUseWallet={() => { if (walletAddress) selectAccount(walletAddress, true); }}
             wallet={walletAddress} lang={lang} busy={busy} results={diagnosis.results} gas={diagnosis.gas} overrides={rpcOverrides}
             setRpc={(id, value) => { resetInspection(); setRpcOverrides(old => ({ ...old, [id]: value })); }}
             rescan={diagnosis.rescan} open={openDiagnosis} /> : <section className="panel compact account-context">
