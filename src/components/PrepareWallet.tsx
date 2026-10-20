@@ -15,9 +15,9 @@ export function PrepareWallet({ client, chain, snapshot, wallet, lang, busy, des
   const [checkedBlock, setCheckedBlock] = useState<bigint>();
   const isOwner = !!wallet && !!snapshot?.owners.some(owner => same(owner, wallet));
   return <section className="panel">
-    <p className="eyebrow">{t("PASSO 2 / PREPARAR CARTEIRAS", "STEP 2 / PREPARE WALLETS")}</p>
+    <p className="eyebrow">{t("PASSO 1 / PREPARAR CARTEIRAS", "STEP 1 / PREPARE WALLETS")}</p>
     <h2>{t("Uma carteira para assinar. Saldo para as taxas.", "A wallet to sign. Funds for fees.")}</h2>
-    <p>{t("Conecte a carteira que controla sua conta após o recovery. Ela enviará as transações e pagará o gás nesta rede.", "Connect the wallet that controls your account after recovery. It will send transactions and pay gas on this network.")}</p>
+    <p>{t("A carteira que controla sua conta enviará as transações e pagará o gás nesta rede. Confira o saldo para taxas e escolha o destino dos ativos.", "The wallet controlling your account will send transactions and pay gas on this network. Check its fee balance and choose the asset destination.")}</p>
     {!wallet && <p className="note">{t("Nenhuma carteira conectada. A conexão é feita no passo 0.", "No wallet connected. Connect it in step 0.")} <button className="text-button" disabled={busy} onClick={connect}>{t("Ir para a conexão →", "Go to connection →")}</button></p>}
     {wallet && <div className="funding-card">
       <h3>{t("Abasteça este endereço", "Fund this address")}</h3>
@@ -41,7 +41,9 @@ export function PrepareWallet({ client, chain, snapshot, wallet, lang, busy, des
     </div>}
     <p className={isOwner ? "small" : "note"}>{isOwner
       ? t("Esta carteira está entre os owners da conta consultada. Se houver mais assinaturas necessárias, os outros owners também precisam aprovar.", "This wallet is an owner of the inspected account. If more signatures are required, the other owners must also approve.")
-      : t("Abra uma conta no diagnóstico e conecte uma carteira owner. A chave de recuperação (guardian) autoriza o recovery. Após finalizar, conecte a nova carteira owner.", "Open an account from the diagnosis and connect an owner wallet. A recovery guardian is not automatically an owner; normally you recover to a different wallet.")}</p>
+      : snapshot?.passkey === "detected"
+        ? t("Conecte uma carteira owner. Se você está usando o guardian, conclua a recuperação no diagnóstico e depois conecte a nova carteira owner.", "Connect an owner wallet. If using a guardian, finish recovery in diagnosis and then connect the new owner wallet.")
+        : t("A carteira conectada precisa controlar esta conta. Volte ao diagnóstico para conectar a carteira owner.", "The connected wallet must control this account. Return to diagnosis to connect the owner wallet.")}</p>
     <label className="field"><span>{t("Destino dos ativos", "Asset destination")}</span><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" /></label>
     {wallet && <button className="text-button" disabled={busy || same(wallet, snapshot?.address ?? "")} onClick={() => setDestination(wallet)}>{t("Usar minha carteira conectada como destino", "Use my connected wallet as destination")}</button>}
     <p className="small muted">{t("Você confere o destino em cada retirada. Em uma conta antiga sem Safe, a própria conta paga as taxas: deixe uma reserva de gás ao retirar a moeda nativa.", "Review the destination for each withdrawal. For a legacy account without a Safe, the account itself pays fees: leave a gas reserve when withdrawing native coins.")}</p>

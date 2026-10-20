@@ -3,6 +3,7 @@ import singletons from "../catalog/safe-singletons.json";
 import { safeAbi, recoveryAbi } from "./abi";
 import { address, assertChain, same, SENTINEL } from "./client";
 import type { AccountSnapshot, RecoveryState } from "./types";
+import { inspectPasskey } from "./passkey";
 
 // Gnosis canonical v0.0.1 runtime, verified against the public deployment.
 export const RECOVERY_RUNTIME = "0xd1d497d06956a300c318dd3df28e7cbaf64dc509bf9e8674753c4f69fd50746a";
@@ -62,7 +63,7 @@ export async function inspectAccount(client: PublicClient, raw: string, chainId:
   const code = await client.getCode({ address: account, blockNumber });
   if (!code || code === "0x") return {
     address: account, chainId, block: blockNumber, timestamp: block.timestamp, version: "EOA", owners: [account], threshold: 1n,
-    nonce: BigInt(await client.getTransactionCount({ address: account, blockNumber })), modules: [], guard: zeroAddress, moduleGuard: zeroAddress, recoveries: [],
+    nonce: BigInt(await client.getTransactionCount({ address: account, blockNumber })), modules: [], guard: zeroAddress, moduleGuard: zeroAddress, recoveries: [], passkey: "not-detected",
     nativeBalance: await client.getBalance({ address: account, blockNumber }),
     warnings: ["No deployed contract: only a wallet controlling this exact address can send. A counterfactual Safe cannot be recovered as an EOA."],
   };
@@ -100,7 +101,8 @@ export async function inspectAccount(client: PublicClient, raw: string, chainId:
     }
   }
   return { address: account, chainId, block: blockNumber, timestamp: block.timestamp,
-    version, owners, threshold, nonce, modules, guard, moduleGuard, recoveries, nativeBalance, warnings };
+    version, owners, threshold, nonce, modules, guard, moduleGuard, recoveries, nativeBalance, warnings,
+    passkey: await inspectPasskey(client, owners, blockNumber) };
 }
 function slotAddress(value?: Hex): Address {
   return value ? `0x${value.slice(-40)}` as Address : zeroAddress;

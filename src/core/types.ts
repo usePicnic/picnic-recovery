@@ -31,6 +31,7 @@ export type AccountSnapshot = {
   guard: Address;
   moduleGuard: Address;
   recoveries: RecoveryState[];
+  passkey?: "detected" | "not-detected" | "unknown";
   nativeBalance: bigint;
   warnings: string[];
 };

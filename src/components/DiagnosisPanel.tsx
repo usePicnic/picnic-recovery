@@ -1,35 +1,35 @@
-import { useState } from "react";
-import { formatUnits, type Address } from "viem";
+import { useState, type ReactNode } from "react";
+import { type Address } from "viem";
 import { chains, chainById } from "../catalog/chains";
-import { hasAssets, nextAction, type NetworkDiagnosis, type TokenHolding, type WalletGas } from "../core/diagnosis";
+import { hasAssets, type NetworkDiagnosis, type TokenHolding } from "../core/diagnosis";
 import { validateRpc } from "../core/client";
 import { rpcFor, type CustomTokenState, type RpcOverrides } from "./useDiagnosis";
 import { WalletButton } from "./WalletProvider";
 import { AssetTable } from "./AssetTable";
 import { ChainLogo } from "./ChainLogo";
-import { diagnosisNext, needsAttention, withCustomHoldings } from "./diagnosisFlow";
+import { diagnosisAction, diagnosisNext, needsAttention, withCustomHoldings } from "./diagnosisFlow";
 
 type Props = {
   account: string; setAccount: (value: string) => void; onUseWallet: () => void; wallet?: Address; lang: "pt" | "en"; busy: boolean;
-  results: NetworkDiagnosis[]; gas: Record<number, WalletGas>; overrides: RpcOverrides;
+  results: NetworkDiagnosis[]; recovery?: ReactNode; overrides: RpcOverrides;
   setRpc: (id: number, value: string) => void; rescan: (id?: number) => void;
   open: (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: TokenHolding) => void;
   custom: CustomTokenState[]; addCustom: Parameters<typeof AssetTable>[0]["addCustom"];
   removeCustom: (chainId: number, token: Address) => void; retryCustom: (chainId: number, token: Address) => void;
 };
-export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang, busy, results, gas, overrides, setRpc, rescan, open, custom, addCustom, removeCustom, retryCustom }: Props) {
+export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang, busy, results, recovery, overrides, setRpc, rescan, open, custom, addCustom, removeCustom, retryCustom }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const finished = results.filter(r => !["queued", "scanning"].includes(r.status)).length;
   const scanning = results.length > 0 && finished < results.length;
   const loading = scanning || custom.some(item => item.status === "loading");
   const networkResults = withCustomHoldings(results, custom);
   const ordered = networkResults.sort((a, b) => Number(hasAssets(b)) - Number(hasAssets(a)) || Number(!!b.snapshot?.recoveries.length) - Number(!!a.snapshot?.recoveries.length) || chains.findIndex(c => c.id === a.chainId) - chains.findIndex(c => c.id === b.chainId));
-  const pending = ordered.filter(result => needsAttention(result, wallet, gas[result.chainId]));
+  const pending = ordered.filter(result => needsAttention(result, wallet));
   const incomplete = pending.filter(result => result.status === "partial" || result.status === "unavailable");
-  const otherPending = pending.filter(result => !incomplete.includes(result) || ["fund", "recover", "waiting", "finalize", "owner-required", "unsupported"].includes(nextAction(result, wallet, gas[result.chainId])));
+  const otherPending = pending.filter(result => !incomplete.includes(result) || ["recover", "waiting", "finalize", "owner-required", "unsupported"].includes(diagnosisAction(result, wallet)));
   const customErrors = custom.filter(item => item.status === "error");
   const pendingCount = otherPending.length + (incomplete.length > 0 ? 1 : 0) + customErrors.length;
-  const continuation = diagnosisNext(results, wallet, gas, custom);
+  const continuation = diagnosisNext(results, wallet, custom);
   const [view, setView] = useState<"assets" | "pending">("assets");
   const separate = !!account && (!wallet || account.toLowerCase() !== wallet.toLowerCase());
   const [manual, setManual] = useState(separate);
@@ -73,15 +73,15 @@ export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang,
       <AssetTable lang={lang} busy={busy} ready={results.length > 0} results={results} custom={custom} open={open} addCustom={addCustom} removeCustom={removeCustom} retryCustom={retryCustom} showActions={false} />
     </div>
     <div id="diagnosis-pending" role="tabpanel" aria-labelledby="diagnosis-pending-tab" hidden={view !== "pending"}>
-      <p className="small muted">{t("O que precisa de atenção para recuperar o acesso e mover os ativos.", "What needs attention to recover access and move assets.")}</p>
+      <p className="small muted">{t("O que precisa de atenção antes de continuar.", "What needs attention before continuing.")}</p>
       {pending.length + customErrors.length > 0 ? <ul className="network-list">
-        {otherPending.map(result => <NetworkRow key={result.chainId} result={result} wallet={wallet} gas={gas[result.chainId]} lang={lang} />)}
+        {otherPending.map(result => <NetworkRow key={result.chainId} result={result} wallet={wallet} lang={lang} />)}
         {incomplete.length > 0 && <li className="network-row">
           <strong>{t("Concluir a verificação de saldos", "Complete balance verification")}</strong>
           <p className="small">{t("Parte das consultas não pôde ser concluída. Os saldos encontrados continuam na tabela; os demais são desconhecidos, não zero. Você pode repetir a consulta em Avançado.", "Some checks could not be completed. Confirmed balances remain in the table; the others are unknown, not zero. You can retry the scan under Advanced.")}</p>
           <div className="pending-networks">{incomplete.map(result => <span className="network-cell small" key={result.chainId}><ChainLogo id={result.chainId} size={20} />{chainById(result.chainId).name}</span>)}</div>
           <details><summary>{t("Ver o que falta em cada rede", "See what is missing on each network")}</summary>
-            <ul className="network-list">{incomplete.map(result => <NetworkRow key={result.chainId} result={result} wallet={wallet} gas={gas[result.chainId]} lang={lang} />)}</ul>
+            <ul className="network-list">{incomplete.map(result => <NetworkRow key={result.chainId} result={result} wallet={wallet} lang={lang} />)}</ul>
           </details>
         </li>}
         {customErrors.map(item => <li className="network-row" key={`${item.chainId}:${item.address}`}><strong>{t("Verificar token adicionado", "Check added token")}</strong>
@@ -89,7 +89,8 @@ export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang,
           <p className="small muted">{t("O saldo não pôde ser confirmado. Veja o motivo e tente novamente em Ativos → Gerenciar tokens adicionados.", "The balance could not be confirmed. See the reason and retry under Assets → Manage added tokens.")}</p></li>)}
       </ul> : <p className="empty-assets">{!results.length ? t("Conecte uma carteira para verificar as pendências.", "Connect a wallet to check for issues.") : loading ? t("As pendências aparecerão conforme a consulta avançar.", "Items needing attention will appear as the scan progresses.") : t("Nenhuma pendência identificada nas verificações realizadas.", "No issues identified in the completed checks.")}</p>}
     </div>
-    {results.length > 0 && <div className="diagnosis-continue">
+    {recovery}
+    {results.length > 0 && !recovery && <div className="diagnosis-continue">
       <p className="small muted">{loading ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
         : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
         : t("Ainda não foi possível verificar uma conta compatível. Confira as pendências e tente atualizar a consulta em Avançado.", "A supported account could not be verified yet. Review the issues and retry the scan under Advanced.")}</p>
@@ -104,11 +105,11 @@ export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang,
   </section>;
 }
 
-function NetworkRow({ result, wallet, gas, lang }: {
-  result: NetworkDiagnosis; wallet?: Address; gas?: WalletGas; lang: "pt" | "en";
+function NetworkRow({ result, wallet, lang }: {
+  result: NetworkDiagnosis; wallet?: Address; lang: "pt" | "en";
 }) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
-  const chain = chainById(result.chainId), action = nextAction(result, wallet, gas);
+  const chain = chainById(result.chainId), action = diagnosisAction(result, wallet);
   const waiting = result.snapshot?.recoveries.find(r => r.pending.executeAfter > 0n);
   const done = result.status !== "queued" && result.status !== "scanning";
   const messages = {
@@ -116,9 +117,8 @@ function NetworkRow({ result, wallet, gas, lang }: {
     unsupported: t("Contrato identificado, mas esta versão exige revisão antes de movimentar.", "Contract found, but this version needs review before moving funds."),
     waiting: t("Recovery em andamento. Aguarde o prazo do contrato.", "Recovery in progress. Wait for the contract delay."),
     finalize: t("O prazo do recovery terminou. Revise a finalização.", "The recovery delay has elapsed. Review finalization."),
-    connect: t("Conecte sua carteira para verificar acesso e gás nesta rede.", "Connect your wallet to check access and gas on this network."),
-    fund: t(`A carteira conectada é owner, mas precisa de ${chain.nativeCurrency.symbol} para taxas.`, `Your connected wallet is an owner, but needs ${chain.nativeCurrency.symbol} for fees.`),
-    prepare: t("A carteira conectada é owner. Prepare o destino e confira as taxas.", "Your connected wallet is an owner. Prepare the destination and check fees."),
+    connect: t("Conecte a carteira que controla esta conta.", "Connect the wallet that controls this account."),
+    prepare: t("A carteira conectada controla esta conta.", "The connected wallet controls this account."),
     recover: t("Há recuperação configurada. Use um guardian válido ou conecte uma carteira owner.", "Recovery is configured. Use a valid guardian or connect an owner wallet."),
     "owner-required": t("A carteira conectada não controla esta conta. É necessária a carteira owner.", "The connected wallet does not control this account. An owner wallet is required."),
     "no-findings": t("Nenhum saldo encontrado nos contratos que responderam. Leituras não verificadas estão indicadas abaixo.", "No balance found in contracts that answered. Unverified reads are listed below."),
@@ -132,27 +132,26 @@ function NetworkRow({ result, wallet, gas, lang }: {
   ].filter((line): line is string => !!line);
   const unreadable = result.unreadableTokens.length;
   const repinned = result.tokenBlocks && result.snapshot && result.tokenBlocks.to !== result.snapshot.block;
-  const title = action === "fund" ? t("Adicionar saldo para taxas", "Add funds for fees")
-    : action === "waiting" ? t("Aguardar o prazo de recuperação", "Wait for the recovery delay")
+  const title = action === "waiting" ? t("Aguardar o prazo de recuperação", "Wait for the recovery delay")
     : action === "finalize" ? t("Finalizar a recuperação", "Finalize recovery")
     : action === "recover" ? t("Recuperar o acesso", "Recover access")
     : action === "owner-required" || action === "connect" ? t("Confirmar a carteira que controla a conta", "Confirm the wallet controlling the account")
     : action === "unsupported" ? t("Revisar a compatibilidade da conta", "Review account compatibility")
     : result.status === "partial" || result.status === "unavailable" ? t("Concluir a verificação", "Complete verification")
     : unreadable > 0 ? t("Conferir saldos não verificados", "Review unverified balances")
-    : t("Conferir as taxas e a consulta", "Review fees and scan coverage");
+    : t("Conferir o tipo de acesso", "Review account access");
   return <li className="network-row">
     <div className="network-head">
       <strong>{title}</strong>
       <span className="network-cell small"><ChainLogo id={chain.id} size={20} />{chain.name}</span>
     </div>
-    <p className="diagnosis-next">{result.status === "unavailable" ? t("A rede não respondeu ou a conta não pôde ser interpretada. Tente novamente ou configure outro RPC.", "The network did not respond or the account could not be interpreted. Retry or configure another RPC.") : messages[action]}</p>
+    <p className="diagnosis-next">{result.status === "unavailable" ? t("A rede não respondeu ou a conta não pôde ser interpretada. Tente novamente ou configure outro RPC.", "The network did not respond or the account could not be interpreted. Retry or configure another RPC.") : messages[action === "fund" ? "prepare" : action]}</p>
+    {result.snapshot?.passkey === "unknown" && <p className="small muted">{t("O tipo de acesso não pôde ser confirmado. Não identificamos um signer de passkey compatível.", "The access type could not be confirmed. No supported passkey signer was identified.")}</p>}
     {result.cards.length > 0 && <p className="note">{t("Este endereço é uma Safe de cartão. Recupere o controlador antes de retirar pelo cartão.", "This address is a card Safe. Recover its controller before withdrawing through the card.")}</p>}
     {waiting && <p className="small">{t("Finalização a partir de", "Earliest finalization")}: {new Date(Number(waiting.pending.executeAfter) * 1000).toLocaleString(lang)}</p>}
     <details className="pending-details"><summary>{t("Ver detalhes", "View details")}</summary>
     <p className="small muted network-meta">
       {result.totalTokens > 0 && <span>{result.checkedTokens}/{result.totalTokens} {t("tokens consultados", "tokens checked")}</span>}
-      {wallet && <span>{t("Gás da carteira", "Wallet gas")}: {gas?.balance !== undefined ? `${formatUnits(gas.balance, chain.nativeCurrency.decimals)} ${chain.nativeCurrency.symbol}` : gas?.error ? t("não verificado", "unverified") : t("consultando…", "checking…")}</span>}
       {result.sources.length > 0 && <span>{t("Fonte", "Source")}: {result.sources.join(", ")}</span>}
     </p>
     {gaps.length > 0 && <div className="gaps" role="note"><strong>{t("O que ainda não foi verificado", "What is still unverified")}</strong><ul>{gaps.map((gap, i) => <li key={i}>{gap}</li>)}</ul></div>}

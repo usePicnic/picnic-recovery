@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type Address } from "viem";
 import { chains, chainById, defaultReadRpcs } from "../catalog/chains";
 import { address, same } from "../core/client";
-import { CustomTokenFailure, diagnoseNetwork, emptyDiagnosis, inspectCustomToken, type CustomToken, type CustomTokenError, type NetworkDiagnosis, type WalletGas } from "../core/diagnosis";
+import { CustomTokenFailure, diagnoseNetwork, emptyDiagnosis, inspectCustomToken, type CustomToken, type CustomTokenError, type NetworkDiagnosis } from "../core/diagnosis";
 import { ReadPool } from "../core/reads";
 import { products } from "../catalog/products";
 export type RpcOverrides = Record<number, string>;
@@ -19,14 +19,12 @@ const sources = (chainId: number, overrides: RpcOverrides) => readRpcs(chainId, 
 export type CustomTokenState = { chainId: number; address: Address; status: "loading" | "ready" | "error"; token?: CustomToken; error?: CustomTokenError };
 const key = (chainId: number, token: string) => `${chainId}:${token.toLowerCase()}`;
 
-export function useDiagnosis(rawAccount: string, wallet: Address | undefined, overrides: RpcOverrides) {
+export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
   let account: Address | undefined;
   try { account = address(rawAccount); } catch { /* Wait for a complete valid address. */ }
   const context = useRef({ account, overrides });
   context.current = { account, overrides };
   const [results, setResults] = useState<Record<number, NetworkDiagnosis>>({});
-  const [gas, setGas] = useState<Record<number, WalletGas>>({});
-  const [gasRevision, setGasRevision] = useState(0);
   const controllers = useRef(new Map<number, AbortController>());
   // Session-only list of user-added tokens. Balances are always re-read for the
   // current account; pending reads for a previous account or RPC are cancelled.
@@ -73,24 +71,8 @@ export function useDiagnosis(rawAccount: string, wallet: Address | undefined, ov
     const timer = setTimeout(() => launch(), 500);
     return () => { clearTimeout(timer); active.forEach(c => c.abort()); active.clear(); customActive.forEach(c => c.abort()); customActive.clear(); };
   }, [account, launch]);
-  useEffect(() => {
-    const controller = new AbortController();
-    setGas({});
-    if (wallet && account) for (const chain of chains) {
-      void (async () => {
-        try {
-          const balance = await new ReadPool(chain, sources(chain.id, overrides), controller.signal).run(client => client.getBalance({ address: wallet }));
-          if (!controller.signal.aborted) setGas(old => ({ ...old, [chain.id]: { address: wallet, balance } }));
-        } catch {
-          if (!controller.signal.aborted) setGas(old => ({ ...old, [chain.id]: { address: wallet, error: "RPC unavailable" } }));
-        }
-      })();
-    }
-    return () => controller.abort();
-  }, [wallet, account, overrides, gasRevision]);
   const current = Object.values(results).filter(r => account && r.account.toLowerCase() === account.toLowerCase());
-  const currentGas = Object.fromEntries(Object.entries(gas).filter(([, value]) => wallet && value.address.toLowerCase() === wallet.toLowerCase()));
-  const rescan = useCallback((id?: number) => { launch(id); setGasRevision(value => value + 1); }, [launch]);
+  const rescan = useCallback((id?: number) => { launch(id); }, [launch]);
   // "duplicate": already added; "catalogue": already checked by the automatic scan.
   const addCustomToken = useCallback(async (chainId: number, raw: string): Promise<CustomTokenError | "duplicate" | "catalogue" | "cancelled" | undefined> => {
     let token: Address;
@@ -112,5 +94,5 @@ export function useDiagnosis(rawAccount: string, wallet: Address | undefined, ov
   }, []);
   const customTokens = customList.map(c => custom[key(c.chainId, c.address)] ?? { ...c, status: "loading" as const })
     .filter(c => !c.token || (account && same(c.token.account, account)));
-  return { account, results: current, gas: currentGas, rescan, customTokens, addCustomToken, removeCustomToken, retryCustomToken: verifyCustom };
+  return { account, results: current, rescan, customTokens, addCustomToken, removeCustomToken, retryCustomToken: verifyCustom };
 }

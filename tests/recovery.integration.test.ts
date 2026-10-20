@@ -9,6 +9,8 @@ import proxyArtifact from "./fixtures/SafeProxy.json";
 import delayArtifact from "./fixtures/Delay.json";
 import { inspectCard, enqueueCard, readQueue, dispatchCard } from "../src/core/card";
 import recoveryArtifact from "./fixtures/recovery.json";
+import passkeyProxies from "./fixtures/passkey-proxies.json";
+import { isPasskeySigner, inspectPasskey } from "../src/core/passkey";
 import { inspectAccount, recoveryPeriod } from "../src/core/inspect";
 import { safeAbi, recoveryAbi, erc20Abi } from "../src/core/abi";
 import { recoveryAction, sendAction, safeAction, transferCall, approveSafeProposal } from "../src/core/actions";
@@ -72,6 +74,21 @@ beforeAll(async () => {
 afterAll(() => child?.kill("SIGTERM"));
 
 describe("Independent recovery using deployed contract bytecode", () => {
+  it("recognizes both deployed Picnic passkey proxy versions, without classifying other contracts as passkeys", async () => {
+    for (const fixture of passkeyProxies) {
+      const constructor = encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint176" }], [fixture.singleton as Address, 123n, 456n, 789n]);
+      const signer = await deploy([], concatHex([fixture.creationCode as Hex, constructor]));
+      expect(isPasskeySigner(await publicClient.getCode({ address: signer }))).toBe(true);
+      const passkeySafe = await deploy(proxyArtifact.abi, proxyArtifact.bytecode as Hex, [singleton]);
+      await publicClient.waitForTransactionReceipt({ hash: await wallet.writeContract({ account: accounts[0], address: passkeySafe, abi: setupAbi, functionName: "setup", args: [[signer], 1n, zero, "0x", zero, zero, 0n, zero] }) });
+      expect((await inspectAccount(publicClient, passkeySafe, foundry.id)).passkey).toBe("detected");
+      const otherSingleton = encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint176" }], [accounts[0], 123n, 456n, 789n]);
+      const impostor = await deploy([], concatHex([fixture.creationCode as Hex, otherSingleton]));
+      expect(isPasskeySigner(await publicClient.getCode({ address: impostor }))).toBe(false);
+    }
+    expect((await inspectAccount(publicClient, safe, foundry.id)).passkey).toBe("not-detected");
+    expect(await inspectPasskey(publicClient, [token], await publicClient.getBlockNumber())).toBe("unknown");
+  }, 60_000);
   it("identifies actual Safe owner, guardian and seven-day contract period", async () => {
     const s = await inspectAccount(publicClient, safe, foundry.id);
     expect(s.owners.map(a => a.toLowerCase())).toEqual([accounts[0].toLowerCase()]);

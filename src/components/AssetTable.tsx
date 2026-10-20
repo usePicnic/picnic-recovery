@@ -6,6 +6,7 @@ import { same } from "../core/client";
 import { hasPosition, type NetworkDiagnosis, type TokenHolding } from "../core/diagnosis";
 import type { CustomTokenState } from "./useDiagnosis";
 import { ChainLogo } from "./ChainLogo";
+import { NetworkSelect } from "./NetworkSelect";
 
 type Lang = "pt" | "en";
 type Open = (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: TokenHolding) => void;
@@ -130,15 +131,16 @@ function CustomTokenForm({ lang, busy, add }: { lang: Lang; busy: boolean; add: 
       if (outcome) setMessage(messages[outcome]); else setToken("");
     } catch { setMessage(t("Não foi possível adicionar o token. Tente novamente.", "Could not add the token. Try again.")); } finally { setSubmitting(false); }
   }
-  return <details className="custom-token">
+  return <details className="custom-token custom-token-editor">
     <summary>{t("Não encontrou um token? Adicione pelo contrato", "Missing a token? Add it by contract")}</summary>
     <form onSubmit={submit}>
-      <p className="small muted">{t("Leitura direta na rede escolhida: casas decimais e saldo vêm do próprio contrato. O token fica só nesta sessão.", "Read directly from the chosen network: decimals and balance come from the contract itself. The token is kept only for this session.")}</p>
+      <div className="custom-token-heading"><span className="custom-token-plus" aria-hidden="true">+</span><div><h3>{t("Adicionar token", "Add token")}</h3><p>{t("Escolha a rede e informe o contrato do token.", "Choose the network and enter the token contract.")}</p></div></div>
       <div className="custom-token-fields">
-        <label className="field"><span>{t("Rede", "Network")}</span><select value={chainId} disabled={busy || submitting} onChange={e => setChainId(Number(e.target.value))}>{chains.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-        <label className="field grow"><span>{t("Endereço do contrato do token", "Token contract address")}</span><input value={token} disabled={busy || submitting} placeholder="0x…" spellCheck={false} autoComplete="off" onChange={e => { setToken(e.target.value); setMessage(""); }} /></label>
-        <button type="submit" className="outline" disabled={busy || submitting || !token.trim()}>{submitting ? t("Adicionando…", "Adding…") : t("Adicionar", "Add")}</button>
+        <NetworkSelect label={t("Rede do token", "Token network")} value={chainId} disabled={busy || submitting} onChange={id => { setChainId(id); setMessage(""); }} />
+        <label className="field grow"><span>{t("Endereço do contrato do token", "Token contract address")}</span><input className="token-contract-input" value={token} disabled={busy || submitting} placeholder="0x…" spellCheck={false} autoComplete="off" onChange={e => { setToken(e.target.value); setMessage(""); }} /></label>
       </div>
+      <div className="custom-token-footer"><p>{t("Saldo e casas decimais são verificados na rede. O token fica só nesta sessão.", "Balance and decimals are checked on-chain. This token is saved only for this session.")}</p>
+        <button type="submit" className="add-token-button" disabled={busy || submitting || !token.trim()}>{submitting ? <span className="scan-spinner" aria-hidden="true" /> : <span aria-hidden="true">+</span>}{submitting ? t("Adicionando…", "Adding…") : t("Adicionar token", "Add token")}</button></div>
       {message && <p className="small table-error" role="alert">{message}</p>}
     </form>
   </details>;
