@@ -41,12 +41,11 @@ export function App() {
   const [rpcOverrides, setRpcOverrides] = useState<RpcOverrides>({});
   const rpc = rpcFor(chainId, rpcOverrides);
   const [account, setAccount] = useState(() => readProgress().accounts.at(-1)?.address ?? "");
-  const [followWallet, setFollowWallet] = useState(true);
   const [snapshot, setSnapshot] = useState<AccountSnapshot>();
   const [progress, setProgress] = useState(readProgress);
   const connection = useAccount();
   const walletAddress = connection.address;
-  const connectedAccount = useConnectedAccount(walletAddress, followWallet, rpcOverrides);
+  const connectedAccount = useConnectedAccount(walletAddress, true, rpcOverrides);
   const diagnosis = useDiagnosis(account, rpcOverrides);
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
   // What to move, chosen in Prepare wallets and enforced in Move funds.
@@ -129,17 +128,13 @@ export function App() {
     setSnapshot(undefined); setReview(undefined); setPositions([]); setCoveredRequests([]); setScanProgress(""); setMamoPositions([]); setPositionFailures([]);
     setCardDelay(undefined); setQueue([]); setReviewed(false); setStep(0);
   }
-  function selectAccount(value: string) {
-    setFollowWallet(false); setAccount(value); resetInspection();
-  }
   useEffect(() => {
-    // Follow the connected address by default, including account switches.
-    // An explicitly selected Safe/card remains the target when its signer connects.
-    if (!walletAddress || !followWallet || busy) return;
+    // Follow the connected address, including account switches.
+    if (!walletAddress || busy) return;
     const target = connectedAccount?.account ?? walletAddress;
     if (same(account, target)) return;
     setAccount(target); resetInspection(); setError(""); setNotice("");
-  }, [walletAddress, connectedAccount?.account, followWallet, busy, account]);
+  }, [walletAddress, connectedAccount?.account, busy, account]);
   function openDiagnosis(result: NetworkDiagnosis, next: 1 | 2 | 3, assetTab?: string, holding?: TokenHolding) {
     if (!result.snapshot || !same(result.account, account)) return;
     resetInspection(); setChainId(result.chainId); setSnapshot(result.snapshot); setStep(next === 1 && result.snapshot.passkey !== "detected" ? 2 : next);
@@ -254,9 +249,7 @@ export function App() {
               <span className="step-number">{index}</span><span>{title}<small>{subtitle}</small></span>
             </button>)}
           </nav>
-          <div className="saved"><p className="eyebrow">{t("CONTAS SALVAS", "SAVED ACCOUNTS")}</p>
-            {progress.accounts.length === 0 && <p className="muted small">{t("As contas consultadas ficam salvas neste navegador.", "Inspected accounts are saved in this browser.")}</p>}
-            {[...new Map(progress.accounts.map(a => [a.address.toLowerCase(), a])).values()].map(a => <button key={a.address} className="saved-account" disabled={busy} onClick={() => selectAccount(a.address)}>{short(a.address)}<small>{t("Diagnosticar em todas as redes", "Diagnose across all networks")}</small></button>)}
+          <div className="progress-tools">
             <div className="row"><button className="text-button" onClick={() => downloadProgress(progress)}>{t("Exportar progresso", "Export progress")}</button>
               <button className="text-button" disabled={busy} onClick={() => importRef.current?.click()}>{t("Importar", "Import")}</button></div>
             <input ref={importRef} hidden type="file" accept=".json,application/json" onChange={e => {

@@ -78,9 +78,6 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
       </ul> : <p className="empty-assets">{!results.length ? t("Conecte uma carteira para verificar as pendências.", "Connect a wallet to check for issues.") : loading ? t("As pendências aparecerão conforme a consulta avançar.", "Items needing attention will appear as the scan progresses.") : t("Nenhuma pendência identificada nas verificações realizadas.", "No issues identified in the completed checks.")}</p>}
     </div>
     {recovery}
-    {results.some(result => result.notes?.length) && <details className="small muted"><summary>{t("Observações sobre contas antigas", "Notes about old accounts")}</summary>
-      {results.flatMap(result => result.notes?.map(note => <p key={`${result.chainId}:${note}`}>{note}</p>) ?? [])}
-    </details>}
     {(results.length > 0 || identifying) && !recovery && <div className="diagnosis-continue">
       <p className="small muted">{waitingToContinue ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
         : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
