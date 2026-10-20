@@ -18,6 +18,7 @@ import { DiagnosisPanel } from "./components/DiagnosisPanel";
 import { RecoveryPanel } from "./components/RecoveryPanel";
 import { CardAssetForm } from "./components/CardAssetForm";
 import { AssetTable, ItemText } from "./components/AssetTable";
+import { useConnectedAccount } from "./components/useConnectedAccount";
 import { useDiagnosis, rpcFor, type RpcOverrides } from "./components/useDiagnosis";
 import { type NetworkDiagnosis, type TokenHolding } from "./core/diagnosis";
 import { LegacyPanel } from "./components/LegacyPanel";
@@ -41,10 +42,12 @@ export function App() {
   const rpc = rpcFor(chainId, rpcOverrides);
   const [account, setAccount] = useState(() => readProgress().accounts.at(-1)?.address ?? "");
   const [followWallet, setFollowWallet] = useState(true);
+  const [directWallet, setDirectWallet] = useState(false);
   const [snapshot, setSnapshot] = useState<AccountSnapshot>();
   const [progress, setProgress] = useState(readProgress);
   const connection = useAccount();
   const walletAddress = connection.address;
+  const connectedAccount = useConnectedAccount(walletAddress, followWallet && !directWallet, rpcOverrides);
   const diagnosis = useDiagnosis(account, rpcOverrides);
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
   // What to move, chosen in Prepare wallets and enforced in Move funds.
@@ -128,14 +131,16 @@ export function App() {
     setCardDelay(undefined); setQueue([]); setReviewed(false); setStep(0);
   }
   function selectAccount(value: string, fromWallet = false) {
-    setFollowWallet(fromWallet); setAccount(value); resetInspection();
+    setFollowWallet(fromWallet); if (fromWallet) setDirectWallet(true); setAccount(value); resetInspection();
   }
   useEffect(() => {
     // Follow the connected address by default, including account switches.
     // An explicitly selected Safe/card remains the target when its signer connects.
-    if (!walletAddress || !followWallet || busy || same(account, walletAddress)) return;
-    setAccount(walletAddress); resetInspection(); setError(""); setNotice("");
-  }, [walletAddress, followWallet, busy, account]);
+    if (!walletAddress || !followWallet || busy) return;
+    const target = connectedAccount?.account ?? walletAddress;
+    if (same(account, target)) return;
+    setAccount(target); resetInspection(); setError(""); setNotice("");
+  }, [walletAddress, connectedAccount?.account, followWallet, busy, account]);
   function openDiagnosis(result: NetworkDiagnosis, next: 1 | 2 | 3, assetTab?: string, holding?: TokenHolding) {
     if (!result.snapshot || !same(result.account, account)) return;
     resetInspection(); setChainId(result.chainId); setSnapshot(result.snapshot); setStep(next === 1 && result.snapshot.passkey !== "detected" ? 2 : next);
@@ -263,7 +268,7 @@ export function App() {
         </aside>
         <div className="content">
           {step <= 1 ? <DiagnosisPanel account={account} setAccount={value => selectAccount(value)} onUseWallet={() => { if (walletAddress) selectAccount(walletAddress, true); }}
-            wallet={walletAddress} lang={lang} busy={busy} results={diagnosis.results} overrides={rpcOverrides}
+            wallet={walletAddress} lang={lang} busy={busy || connectedAccount?.status === "loading"} results={diagnosis.results} overrides={rpcOverrides}
             setRpc={(id, value) => { resetInspection(); setRpcOverrides(old => ({ ...old, [id]: value })); }}
             rescan={diagnosis.rescan} open={openDiagnosis} custom={diagnosis.customTokens} addCustom={diagnosis.addCustomToken}
             removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken}
@@ -276,6 +281,9 @@ export function App() {
             <button className="text-button" disabled={busy} onClick={() => goToStep(0)}>{t("Trocar carteira ou voltar ao diagnóstico", "Change wallet or back to diagnosis")}</button>
           </section>}
           {step > 1 && diagnosis.results.some(r => r.status === "scanning" || r.status === "queued") && <p className="small muted" role="status">{t("O diagnóstico das outras redes continua em segundo plano.", "Diagnosis of the other networks continues in the background.")}</p>}
+          {step <= 1 && connectedAccount?.status === "loading" && <p className="small muted" role="status">{t("Identificando sua conta Picnic…", "Finding your Picnic account…")}</p>}
+          {step <= 1 && connectedAccount?.status === "ready" && !same(account, walletAddress ?? "") && <p className="small" role="status">{t("Conta Picnic identificada automaticamente. Sua carteira conectada é a proprietária desta Safe.", "Picnic account found automatically. Your connected wallet owns this Safe.")} <span className="mono">{account}</span></p>}
+          {step <= 1 && connectedAccount?.status === "error" && <p className="message warning" role="alert">{t("Não foi possível verificar a conta Picnic vinculada. Confira o RPC da Gnosis ou informe a Safe em Avançado; os saldos da carteira conectada não incluem necessariamente os da Picnic.", "The linked Picnic account could not be verified. Check the Gnosis RPC or enter the Safe under Advanced; the connected wallet's balances may not include your Picnic funds.")}</p>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}
           {uncertain && <div className="message warning" role="alert">

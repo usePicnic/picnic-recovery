@@ -4,6 +4,7 @@ import { chains, chainById, defaultReadRpcs } from "../catalog/chains";
 import { address, same } from "../core/client";
 import { CustomTokenFailure, diagnoseNetwork, emptyDiagnosis, inspectCustomToken, type CustomToken, type CustomTokenError, type NetworkDiagnosis } from "../core/diagnosis";
 import { ReadPool } from "../core/reads";
+import { discoverCards } from "../core/discovery";
 import { inspectCard } from "../core/card";
 import { products } from "../catalog/products";
 export type RpcOverrides = Record<number, string>;
@@ -52,6 +53,7 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
       }
     })();
   }, [account, overrides]);
+  const [cardDiscovery, setCardDiscovery] = useState<{ owner: Address; loading: boolean; issues: string[] }>();
   const cardAddresses = useRef<Address[]>([]);
   const cardOwner = useRef(account);
   const cardControllers = useRef(new Map<string, AbortController>());
@@ -87,6 +89,17 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
       setResults(old => ({ ...old, [chain.id]: emptyDiagnosis(chain.id, account) }));
       void diagnoseNetwork({ chain, account, sources: sources(chain.id, overrides), signal: controller.signal,
         update: result => setResults(old => ({ ...old, [chain.id]: result })) });
+      if (chain.id === 100) {
+        setCardDiscovery({ owner: account, loading: true, issues: [] });
+        const current = () => !controller.signal.aborted && context.current.account === account && context.current.overrides === overrides;
+        void discoverCards(new ReadPool(chain, sources(100, overrides), controller.signal), account).then(found => {
+          if (!current()) return;
+          for (const card of found.addresses) if (!cardAddresses.current.some(existing => same(existing, card))) {
+            cardAddresses.current.push(card); launchCard(card);
+          }
+          setCardDiscovery({ owner: account, loading: false, issues: found.issues });
+        }).catch(() => { if (current()) setCardDiscovery({ owner: account, loading: false, issues: ["Card discovery could not be completed; card balances remain unverified"] }); });
+      }
     }
     if (id === undefined || id === 100) for (const card of cardAddresses.current) launchCard(card);
     for (const item of customListRef.current.filter(c => id === undefined || c.chainId === id)) verifyCustom(item.chainId, item.address);
@@ -106,12 +119,13 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
   const current = Object.values(results).filter(r => account && r.account.toLowerCase() === account.toLowerCase()).map(result => {
     if (result.chainId !== 100) return result;
     const linkedCards = Object.values(cardResults).filter(c => same(c.owner, result.account)).map(c => c.result);
-    const checking = linkedCards.some(c => c.status === "queued" || c.status === "scanning");
+    const discovering = cardDiscovery && same(cardDiscovery.owner, result.account) ? cardDiscovery : undefined;
+    const checking = discovering?.loading || linkedCards.some(c => c.status === "queued" || c.status === "scanning");
     const cardIssues = linkedCards.flatMap(c => c.status === "queued" || c.status === "scanning" ? []
       : !c.cards.some(d => d.controllers.some(controller => same(controller, result.account))) ? [`Card ${c.account}: controller link could not be verified`]
       : c.status === "partial" || c.status === "unavailable" ? [`Card ${c.account}: balances could not be fully verified`] : []);
-    return { ...result, linkedCards, status: checking ? "scanning" as const : cardIssues.length && result.status === "complete" ? "partial" as const : result.status,
-      issues: [...result.issues, ...cardIssues] };
+    return { ...result, linkedCards, status: checking ? "scanning" as const : (cardIssues.length || discovering?.issues.length) && result.status === "complete" ? "partial" as const : result.status,
+      issues: [...result.issues, ...cardIssues, ...discovering?.issues ?? []] };
   });
   const rescan = useCallback((id?: number) => { launch(id); }, [launch]);
   // "duplicate": already added; "catalogue": already checked by the automatic scan.
