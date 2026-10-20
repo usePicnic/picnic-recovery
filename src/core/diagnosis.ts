@@ -4,7 +4,7 @@ import { address, same } from "./client";
 import { erc20Abi } from "./abi";
 import { inspectAccount } from "./inspect";
 import { inspectPosition, type Position } from "./investments";
-import { discoverMamo, type MamoPosition } from "./mamo";
+import { discoverMamo, inspectMamo, type MamoPosition } from "./mamo";
 import { BASKET, discoverBaskets } from "./legacy";
 import { inspectCard, type CardDelay } from "./card";
 import { aggregateWords, balanceOfData, classify, decimalsData, ReadPool, type WordRead } from "./reads";
@@ -14,7 +14,7 @@ export type TokenEntry = { chainId: number; address: string; name: string; symbo
 export type TokenHolding = TokenEntry & { balance: bigint; verifiedDecimals?: number };
 export type NetworkDiagnosis = {
   chainId: number; account: Address; status: "queued" | "scanning" | "complete" | "partial" | "unavailable";
-  phase: "account" | "assets" | "done"; snapshot?: AccountSnapshot; nativeBalance?: bigint;
+  phase: "account" | "assets" | "done"; retryTimeout?: number; snapshot?: AccountSnapshot; nativeBalance?: bigint;
   tokens: TokenHolding[]; positions: Position[]; basketCount?: bigint; strategyCount?: number; strategies?: MamoPosition[]; basketIds?: bigint[]; cards: CardDelay[]; linkedCards?: NetworkDiagnosis[];
   // failedTokens: balance unknown because the RPC did not answer.
   // unreadableTokens: the contract itself reverts or returns no balance at this block.
@@ -62,7 +62,7 @@ export async function diagnoseNetwork(options: {
 }) {
   const { chain, account, signal, update } = options;
   let state = emptyDiagnosis(chain.id, account);
-  const pool = new ReadPool(chain, options.sources, signal, options.waitLimit);
+  const pool = new ReadPool(chain, options.sources, signal, options.waitLimit, timeouts => emit({ retryTimeout: Math.max(0, ...timeouts) }));
   const emit = (patch: Partial<NetworkDiagnosis>) => { state = { ...state, ...patch, sources: [...pool.used] }; if (!signal.aborted) update(state); };
   const issue = (message: string) => emit({ issues: [...state.issues, message] });
   const active = () => { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); };
@@ -97,7 +97,7 @@ export async function diagnoseNetwork(options: {
     }
     if (chain.id === 8453) {
       try {
-        const strategies = await pool.run(client => discoverMamo(client, account)); active();
+        const strategies = await pool.run(client => discoverMamo(client, account, strategy => pool.run(reader => inspectMamo(reader, account, strategy)))); active();
         emit({ strategyCount: strategies.filter(r => r.status === "fulfilled").length, strategies: strategies.flatMap(r => r.status === "fulfilled" ? [r.value] : []) });
         if (strategies.some(r => r.status === "rejected")) issue("Some MAMO strategies could not be inspected");
       } catch (e) { active(); issue(`MAMO: ${message(e)}`); }
@@ -128,6 +128,7 @@ export async function diagnoseNetwork(options: {
       }
     }
     active();
+    if (state.tokens.some(token => token.verifiedDecimals === undefined)) issue("Some token decimals could not be verified; balances are shown as raw units");
     emit({ status: state.issues.length || state.failedTokens || state.checkedTokens < state.totalTokens ? "partial" : "complete", phase: "done" });
   } catch (e) {
     if (signal.aborted) return;
@@ -154,9 +155,6 @@ class TokenReader {
     const latest = await this.pool.run(client => client.getBlockNumber());
     this.block = latest;
     return true;
-  }
-  private async alive() {
-    try { await this.pool.run(client => client.getBlockNumber()); return true; } catch (e) { if (this.signal.aborted) throw e; return false; }
   }
   async balances(batch: readonly TokenEntry[]): Promise<TokenRead[]> {
     const multicall = this.chain.contracts?.multicall3?.address;
@@ -188,7 +186,7 @@ class TokenReader {
           throw e;
         }
         // A down RPC is not retried token by token; the scan reports it unverified.
-        if (["rate", "transport"].includes(classify(e)) && !await this.alive()) return batch.map(() => ({ status: "rpc" }));
+        if (classify(e) === "transport") return batch.map(() => ({ status: "rpc" }));
         if (batch.length > MIN_SPLIT) {
           const half = Math.ceil(batch.length / 2);
           return [...await this.words(batch.slice(0, half), data, multicall), ...await this.words(batch.slice(half), data, multicall)];

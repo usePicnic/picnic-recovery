@@ -38,55 +38,68 @@ export function sleep(ms: number, signal: AbortSignal) {
 // Hostnames only: paths and query strings of RPC URLs may carry API keys.
 export function rpcHost(url: string) { try { return new URL(url).host; } catch { return "custom RPC"; } }
 
-type Endpoint = { host: string; client: PublicClient; verified?: Promise<void>; dead?: boolean };
+export const READ_TIMEOUTS = [20_000, 40_000, 60_000] as const;
+type Endpoint = { host: string; clients: PublicClient[]; verified?: Promise<void>; dead?: boolean };
 export class ReadPool {
   private endpoints: Endpoint[];
   private current = 0;
+  private retrying = new Map<symbol, number>();
   readonly used = new Set<string>();
-  constructor(private chain: Chain, endpoints: readonly { url: string; client?: PublicClient }[], private signal: AbortSignal, private waitLimit = 8_000) {
+  constructor(private chain: Chain, endpoints: readonly { url: string; client?: PublicClient }[], private signal: AbortSignal,
+    private waitLimit = 8_000, private onRetry?: (timeouts: number[]) => void) {
     if (!endpoints.length) throw new Error("No RPC configured");
-    this.endpoints = endpoints.map(e => ({ host: rpcHost(e.url), client: e.client ?? publicClient(chain, e.url) }));
+    this.endpoints = endpoints.map(e => ({ host: rpcHost(e.url), clients: READ_TIMEOUTS.map(timeout => e.client ?? publicClient(chain, e.url, timeout)) }));
   }
   throwIfAborted() { if (this.signal.aborted) throw new DOMException("Cancelled", "AbortError"); }
-  // Runs one read on a single verified endpoint. Rate limits and transport
-  // failures move to the next endpoint; reverts and stale state are returned
-  // to the caller, which owns the snapshot/block decision.
+  // Retry only this failed read unit, never the completed diagnosis. There are
+  // at most three attempts, with 1x/2x/3x transport timeouts. Snapshot units
+  // intentionally repeat together so their account/block data stays coherent.
+  // Writes never use this pool. Contract errors are not transient retries.
   async run<T>(read: (client: PublicClient) => Promise<T>): Promise<T> {
     let last: unknown;
-    const attempts = this.endpoints.length * 2;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-      this.throwIfAborted();
-      const live = this.endpoints.filter(e => !e.dead);
-      if (!live.length) break;
-      const endpoint = live[this.current % live.length];
-      try {
-        endpoint.verified ??= endpoint.client.getChainId().then(id => { if (id !== this.chain.id) throw new Error("RPC chain mismatch"); });
-        try { await endpoint.verified; } catch (e) {
-          if (e instanceof Error && e.message === "RPC chain mismatch") endpoint.dead = true;
-          else endpoint.verified = undefined;
-          throw e;
+    const id = Symbol();
+    try {
+      for (let attempt = 0; attempt < READ_TIMEOUTS.length; attempt++) {
+        this.throwIfAborted();
+        const live = this.endpoints.filter(e => !e.dead);
+        if (!live.length) break;
+        const endpoint = live[this.current % live.length];
+        const client = endpoint.clients[attempt];
+        if (attempt > 0) {
+          this.retrying.set(id, READ_TIMEOUTS[attempt]);
+          this.onRetry?.([...this.retrying.values()]);
         }
-        this.throwIfAborted();
-        const value = await read(endpoint.client);
-        this.used.add(endpoint.host);
-        return value;
-      } catch (e) {
-        this.throwIfAborted();
-        last = e;
-        if (endpoint.dead) continue;
-        const kind = classify(e);
-        if (kind !== "rate" && kind !== "transport") throw e;
-        this.current++;
-        // Back off only after every live endpoint has been tried. A Retry-After
-        // longer than the limit is not worth stalling a single-endpoint scan.
-        if ((attempt + 1) % live.length === 0) {
+        try {
+          endpoint.verified ??= client.getChainId().then(chainId => { if (chainId !== this.chain.id) throw new Error("RPC chain mismatch"); });
+          try { await endpoint.verified; } catch (e) {
+            if (e instanceof Error && e.message === "RPC chain mismatch") endpoint.dead = true;
+            else endpoint.verified = undefined;
+            throw e;
+          }
+          this.throwIfAborted();
+          const value = await read(client);
+          this.throwIfAborted();
+          this.used.add(endpoint.host);
+          return value;
+        } catch (e) {
+          this.throwIfAborted();
+          last = e;
+          if (endpoint.dead) continue;
+          const kind = classify(e);
+          if (kind !== "rate" && kind !== "transport") throw e;
+          this.current++;
+          if (attempt === READ_TIMEOUTS.length - 1) break;
           const wait = retryAfter(e);
+          // Do not hammer a sole endpoint requesting a minutes-long cooldown.
           if (wait !== undefined && wait > this.waitLimit && live.length === 1) throw e;
-          await sleep(Math.min(wait ?? 500 * 2 ** Math.floor(attempt / live.length), this.waitLimit), this.signal);
+          if (live.length === 1 || (attempt + 1) % live.length === 0)
+            await sleep(Math.min(wait ?? 500 * 2 ** attempt, this.waitLimit), this.signal);
         }
       }
+      throw last ?? new Error("RPC unavailable");
+    } finally {
+      if (this.retrying.delete(id)) this.onRetry?.([...this.retrying.values()]);
     }
-    throw last ?? new Error("RPC unavailable");
   }
 }
 

@@ -212,7 +212,7 @@ describe("Prepare wallets view", () => {
 
 describe("one asset list across custody locations", () => {
   const card = "0x4444444444444444444444444444444444444444" as Address;
-  const delay = { address: other, card, controllers: [account], head: 0n, tail: 1n, cooldown: 60n, expiration: 0n };
+  const delay = { delayVersion: "v5" as const, address: other, card, controllers: [account], head: 0n, tail: 1n, cooldown: 60n, expiration: 0n };
   it("keeps wallet and card token balances separate and routes the card row through its verified Delay", () => {
     const result = gnosis({ linkedCards: [{ ...gnosis({ account: card, nativeBalance: 0n, positions: [], cards: [delay] }), snapshot: { ...snap(100), address: card } }] });
     const items = migrationItems([result], []);
@@ -227,6 +227,10 @@ describe("one asset list across custody locations", () => {
     expect(selectedIds(selection, items).has(walletToken.id)).toBe(true);
     expect(selectedIds(selection, items).has(cardToken.id)).toBe(false);
     expect(migrationItems([gnosis({ linkedCards: [{ ...result.linkedCards![0], cards: [{ ...delay, controllers: [other] }] }] })], []).some(i => i.kind === "card")).toBe(false);
+  });
+  it("does not expose v4 card balances or queues even with a matching controller", () => {
+    const result = gnosis({ linkedCards: [gnosis({ account: card, cards: [{ ...delay, delayVersion: "v4" }] })] });
+    expect(migrationItems([result], []).some(item => item.card)).toBe(false);
   });
   it("lists known basket NFTs and MAMO positions individually and leaves unidentified baskets explicit", () => {
     const strategies = [{ address: other, owner: account, token: custom, staking: usdc, balance: 23n, decimals: 6 }];

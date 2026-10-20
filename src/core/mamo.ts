@@ -31,10 +31,10 @@ export async function inspectMamo(client: PublicClient, owner: Address, strategy
   ]);
   return { address: strategy, owner, token, staking, balance, decimals };
 }
-export async function discoverMamo(client: PublicClient, owner: Address) {
+export async function discoverMamo(client: PublicClient, owner: Address, inspect = (strategy: Address) => inspectMamo(client, owner, strategy)) {
   const strategies = await client.readContract({ address: MAMO_REGISTRY, abi: strategyAbi, functionName: "getUserStrategies", args: [owner] });
   // Keep failures visible: a registry can also contain a different strategy type.
-  return Promise.allSettled(strategies.map(s => inspectMamo(client, owner, s)));
+  return Promise.allSettled(strategies.map(inspect));
 }
 export async function withdrawMamo(client: PublicClient, snapshot: AccountSnapshot, strategy: Address, rewards = false): Promise<PreparedAction> {
   const position = await inspectMamo(client, snapshot.address, strategy);

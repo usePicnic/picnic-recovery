@@ -10,16 +10,17 @@ import { ChainLogo } from "./ChainLogo";
 import { diagnosisAction, diagnosisNext, needsAttention, withCustomHoldings } from "./diagnosisFlow";
 
 type Props = {
-  account: string; setAccount: (value: string) => void; onUseWallet: () => void; wallet?: Address; lang: "pt" | "en"; busy: boolean;
+  account: string; wallet?: Address; lang: "pt" | "en"; busy: boolean;
   results: NetworkDiagnosis[]; recovery?: ReactNode; overrides: RpcOverrides;
   setRpc: (id: number, value: string) => void; rescan: (id?: number) => void;
   open: (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: TokenHolding) => void;
   custom: CustomTokenState[]; addCustom: Parameters<typeof AssetTable>[0]["addCustom"];
   removeCustom: (chainId: number, token: Address) => void; retryCustom: (chainId: number, token: Address) => void;
 };
-export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang, busy, results, recovery, overrides, setRpc, rescan, open, custom, addCustom, removeCustom, retryCustom }: Props) {
+export function DiagnosisPanel({ account, wallet, lang, busy, results, recovery, overrides, setRpc, rescan, open, custom, addCustom, removeCustom, retryCustom }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const finished = results.filter(r => !["queued", "scanning"].includes(r.status)).length;
+  const retryTimeout = Math.max(0, ...results.flatMap(r => [r.retryTimeout ?? 0, ...r.linkedCards?.map(c => c.retryTimeout ?? 0) ?? []]));
   const scanning = results.length > 0 && finished < results.length;
   const loading = scanning || custom.some(item => item.status === "loading");
   const networkResults = withCustomHoldings(results, custom);
@@ -31,8 +32,6 @@ export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang,
   const pendingCount = otherPending.length + (incomplete.length > 0 ? 1 : 0) + customErrors.length;
   const continuation = diagnosisNext(results, wallet, custom);
   const [view, setView] = useState<"assets" | "pending">("assets");
-  const separate = !!account && (!wallet || account.toLowerCase() !== wallet.toLowerCase());
-  const [manual, setManual] = useState(separate);
   return <section className="panel diagnosis">
     <p className="eyebrow">{t("PASSO 0 / DIAGNÓSTICO AUTOMÁTICO", "STEP 0 / AUTOMATIC DIAGNOSIS")}</p>
     <h2>{t("Uma conta. Todas as redes.", "One account. Every network.")}</h2>
@@ -43,18 +42,16 @@ export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang,
       </div>
       <WalletButton busy={busy} lang={lang} primary={!wallet} />
     </div>
-    {separate && account && <p className="note">{t("Consultando outro endereço", "Inspecting a different address")}: <span className="mono">{account}</span>
-      {wallet && <> · <button className="text-button" disabled={busy} onClick={onUseWallet}>{t("Voltar para a carteira conectada", "Back to the connected wallet")}</button></>}</p>}
-    <details className="advanced-account" open={manual} onToggle={e => setManual(e.currentTarget.open)}>
-      <summary>{t("Avançado: consultar uma Safe, cartão ou controlador com outro endereço", "Advanced: inspect a Safe, card or controller at another address")}</summary>
-      <p className="small muted">{t("A carteira que assina pode não ser a conta que guarda os ativos. Informe aqui o endereço da Safe, do cartão ou do controlador. A consulta continua sendo só leitura.", "The signing wallet may not be the account holding the assets. Enter the Safe, card or controller address here. The scan remains read-only.")}</p>
-      <label className="field"><span>{t("Endereço a consultar", "Address to inspect")}</span><input value={account} disabled={busy} placeholder="0x…" spellCheck={false} autoComplete="off" onChange={e => setAccount(e.target.value)} /></label>
-    </details>
+    {account && <div className="inspected-account">
+      <strong>{t("Conta em consulta", "Account being inspected")}</strong>
+      <p className="mono">{account}</p>
+      <p className="small muted">{t("A conta que guarda seus ativos pode ser diferente da carteira conectada que assina as operações.", "The account holding your assets may differ from the connected wallet that signs operations.")}</p>
+    </div>}
     {results.length > 0 && <div className={`diagnosis-progress ${loading ? "is-loading" : ""}`}>
       <div className="scan-status" role="status" aria-live="polite">
         <span className={loading ? "scan-spinner" : pending.length + customErrors.length > 0 ? "scan-complete has-pending" : "scan-complete"} aria-hidden="true">{loading ? "" : pending.length + customErrors.length > 0 ? "!" : "✓"}</span>
-        <div><strong>{scanning ? t("Buscando seus ativos…", "Finding your assets…") : loading ? t("Verificando tokens adicionados…", "Checking added tokens…") : pending.length + customErrors.length > 0 ? t("Consulta finalizada com pendências", "Scan finished with items needing attention") : t("Diagnóstico concluído", "Diagnosis finished")}</strong>
-          <p>{scanning ? t(`${finished} de ${results.length} redes consultadas. Os saldos aparecem conforme chegam.`, `${finished} of ${results.length} networks checked. Balances appear as they arrive.`)
+        <div><strong>{retryTimeout > 0 ? t("Tentando novamente as consultas pendentes…", "Retrying pending checks…") : scanning ? t("Buscando seus ativos…", "Finding your assets…") : loading ? t("Verificando tokens adicionados…", "Checking added tokens…") : pending.length + customErrors.length > 0 ? t("Consulta finalizada com pendências", "Scan finished with items needing attention") : t("Diagnóstico concluído", "Diagnosis finished")}</strong>
+          <p>{retryTimeout > 0 ? t(`Os saldos encontrados foram mantidos. Aguardando até ${retryTimeout / 1000}s por requisição nesta tentativa.`, `Found balances are preserved. Allowing up to ${retryTimeout / 1000}s per request on this attempt.`) : scanning ? t(`${finished} de ${results.length} redes consultadas. Os saldos aparecem conforme chegam.`, `${finished} of ${results.length} networks checked. Balances appear as they arrive.`)
             : t("Confira os ativos e as pendências antes de continuar.", "Review assets and items needing attention before continuing.")}</p></div>
       </div>
       {scanning && <progress value={finished} max={results.length} aria-label={t("Progresso do diagnóstico", "Diagnosis progress")} />}

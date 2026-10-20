@@ -16,8 +16,8 @@
 .connect-card p{margin:6px 0 0;font-size:13px;color:#5A5F58;max-width:520px}
 .connect-button{padding:14px 26px;font-size:15px;border-radius:999px;white-space:nowrap;box-shadow:0 1px 0 #86C705}
 .connect-card .outline{white-space:nowrap}
-.advanced-account{margin:4px 0 6px}
-.advanced-account[open]{background:#FAFAF7;border:1px solid #E4E7E1;border-radius:8px;padding:12px 16px}
+.inspected-account{margin:4px 0 6px;background:#FAFAF7;border:1px solid #E4E7E1;border-radius:8px;padding:12px 16px}
+.inspected-account p{margin:6px 0 0}
 .assets,.networks{margin-top:26px}
 .assets .section-title,.networks .section-title{margin-bottom:12px}
 .table-wrap{border:1px solid #D8DCD5;border-radius:10px;overflow:hidden;background:#FFFFFF}

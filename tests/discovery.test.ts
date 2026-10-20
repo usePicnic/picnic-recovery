@@ -35,9 +35,17 @@ describe("automatic Picnic account and card discovery", () => {
   it("finds a replacement card through incoming transfers and rejects an unrelated counterparty", async () => {
     const { pool, client } = fixture();
     client.getLogs.mockImplementation(async args => (args as { args: { to?: string } }).args.to ? [{ args: { from: card, to: owner } }, { args: { from: stranger, to: owner } }] : []);
-    vi.mocked(inspectCard).mockImplementation(async (_client, address) => [{ address: stranger, card: address, controllers: address === card ? [owner] : [stranger], head: 0n, tail: 0n, cooldown: 180n, expiration: 0n }]);
+    vi.mocked(inspectCard).mockImplementation(async (_client, address) => [{ address: stranger, card: address, delayVersion: "v5", controllers: address === card ? [owner] : [stranger], head: 0n, tail: 0n, cooldown: 180n, expiration: 0n }]);
     const found = await discoverCards(pool, owner);
     expect(found.addresses).toEqual([card]); expect(client.getLogs).toHaveBeenCalledWith(expect.objectContaining({ args: { to: owner } }));
+  });
+  it("uses the original v4 card only as a history hint and admits the v5 replacement", async () => {
+    const { pool, client } = fixture();
+    client.getLogs.mockImplementation(async args => (args as { args: { from?: string } }).args.from === predictCardAccount(owner)
+      ? [{ args: { from: predictCardAccount(owner), to: card } }] : []);
+    vi.mocked(inspectCard).mockImplementation(async (_client, address) => [{ address: stranger, card: address,
+      delayVersion: address === card ? "v5" : "v4", controllers: [owner], head: 0n, tail: 0n, cooldown: 180n, expiration: 0n }]);
+    expect((await discoverCards(pool, owner)).addresses).toEqual([card]);
   });
   it("retains discovery uncertainty when transfer history is unavailable", async () => {
     const { pool, client } = fixture(); client.getLogs.mockRejectedValue(new Error("History unavailable"));

@@ -70,7 +70,7 @@ export function migrationItems(results: readonly NetworkDiagnosis[], custom: rea
     if (!result.strategies && (result.strategyCount ?? 0) > 0) add({ id: mamoId(chain.id), kind: "mamo", chainId: chain.id, symbol: "MAMO", name: "", badge: "investment", tab: "invest",
       count: String(result.strategyCount), order: order(chain.id) + 3, selectable: !!result.snapshot });
     for (const card of result.linkedCards ?? []) {
-      const delay = card.cards.find(d => d.controllers.some(controller => same(controller, result.account)));
+      const delay = card.cards.find(d => d.delayVersion === "v5" && d.controllers.some(controller => same(controller, result.account)));
       if (!delay) continue;
       const base = { kind: "card" as const, chainId: chain.id, badge: "card" as const, tab: "card" as const, card: delay, order: order(chain.id) + 4, selectable: !!result.snapshot };
       if ((card.nativeBalance ?? 0n) > 0n) add({ ...base, id: cardId(card.account, "native"), symbol: chain.nativeCurrency.symbol, name: chain.nativeCurrency.name, amount: { value: card.nativeBalance!, decimals: chain.nativeCurrency.decimals } });

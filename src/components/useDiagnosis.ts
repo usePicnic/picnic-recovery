@@ -77,7 +77,7 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
     const pool = new ReadPool(chainById(100), sources(100, overrides), controller.signal);
     const delays = await pool.run(client => inspectCard(client, card, 100));
     if (context.current.account !== account || context.current.overrides !== overrides) throw new Error("Account or RPC changed; try again");
-    if (delays.filter(d => d.controllers.some(c => same(c, account))).length !== 1) throw new Error("This account is not the verified controller of one card Delay module");
+    if (delays.filter(d => d.delayVersion === "v5" && d.controllers.some(c => same(c, account))).length !== 1) throw new Error("This account is not the verified controller of one v5 card Delay module");
     cardAddresses.current = [...cardAddresses.current, card];
     launchCard(card);
   }, [account, overrides, launchCard]);
@@ -122,7 +122,7 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
     const discovering = cardDiscovery && same(cardDiscovery.owner, result.account) ? cardDiscovery : undefined;
     const checking = discovering?.loading || linkedCards.some(c => c.status === "queued" || c.status === "scanning");
     const cardIssues = linkedCards.flatMap(c => c.status === "queued" || c.status === "scanning" ? []
-      : !c.cards.some(d => d.controllers.some(controller => same(controller, result.account))) ? [`Card ${c.account}: controller link could not be verified`]
+      : !c.cards.some(d => d.delayVersion === "v5" && d.controllers.some(controller => same(controller, result.account))) ? [`Card ${c.account}: controller link could not be verified`]
       : c.status === "partial" || c.status === "unavailable" ? [`Card ${c.account}: balances could not be fully verified`] : []);
     return { ...result, linkedCards, status: checking ? "scanning" as const : (cardIssues.length || discovering?.issues.length) && result.status === "complete" ? "partial" as const : result.status,
       issues: [...result.issues, ...cardIssues, ...discovering?.issues ?? []] };

@@ -21,7 +21,7 @@ it("keeps custom-token holdings in diagnosis without checking gas or offering wi
     custom: [{ chainId: 100, address: token, status: "ready", token: {
       chainId: 100, address: token, name: "TEST", symbol: "TEST", balance: 1_000_000n, verifiedDecimals: 6, account, block: 10n, custom: true,
     } }],
-    setAccount: () => {}, onUseWallet: () => {}, setRpc: () => {}, rescan: () => {}, open: () => {},
+    setRpc: () => {}, rescan: () => {}, open: () => {},
     addCustom: async () => undefined, removeCustom: () => {}, retryCustom: () => {},
   }));
   expect(html).not.toContain("Gás da carteira");
@@ -31,6 +31,9 @@ it("keeps custom-token holdings in diagnosis without checking gas or offering wi
   expect(html).not.toContain("token-mark");
   expect(html).not.toContain(">Retirar<");
   expect(html).toContain("Próximo passo");
+  expect(html).toContain("Conta em consulta");
+  expect(html).not.toContain("Endereço a consultar");
+  expect(html).not.toContain("Voltar para a carteira conectada");
 });
 
 it("waits for every network and custom-token read before choosing the next step", () => {

@@ -62,7 +62,7 @@ export async function discoverCards(pool: ReadPool, controller: Address) {
         return;
       }
       const delays = await pool.run(client => inspectCard(client, candidate, 100));
-      if (delays.filter(delay => delay.controllers.some(owner => same(owner, controller))).length === 1) addresses.push(candidate);
+      if (delays.filter(delay => delay.delayVersion === "v5" && delay.controllers.some(owner => same(owner, controller))).length === 1) addresses.push(candidate);
     } catch {
       pool.throwIfAborted();
       if (same(candidate, predicted)) issues.push(`Original card ${candidate} could not be verified; it may have been replaced`);

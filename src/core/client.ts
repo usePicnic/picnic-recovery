@@ -16,8 +16,8 @@ export function validateRpc(url: string): string {
   if (parsed.username || parsed.password) throw new Error("RPC URL must not contain credentials");
   return parsed.href;
 }
-export function publicClient(chain: Chain, rpc: string): PublicClient {
-  return createPublicClient({ chain, transport: http(validateRpc(rpc), { retryCount: 0, timeout: 20_000 }) });
+export function publicClient(chain: Chain, rpc: string, timeout = 20_000): PublicClient {
+  return createPublicClient({ chain, transport: http(validateRpc(rpc), { retryCount: 0, timeout }) });
 }
 export async function assertChain(client: PublicClient, chainId: number) {
   if (await client.getChainId() !== chainId) throw new Error("RPC chain does not match selected network");

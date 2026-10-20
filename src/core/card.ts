@@ -10,7 +10,7 @@ const DELAY_IMPLEMENTATIONS = [
   "0x4a97e65188a950dd4b0f21f9b5434daee0bbf9f5",
 ];
 export type CardDelay = {
-  address: Address; card: Address; controllers: Address[];
+  address: Address; card: Address; controllers: Address[]; delayVersion: "v4" | "v5";
   head: bigint; tail: bigint; cooldown: bigint; expiration: bigint;
 };
 export type QueuedCall = Call & { nonce: bigint; operation: number; createdAt: bigint; hash: Hex };
@@ -44,7 +44,7 @@ export async function inspectCard(client: PublicClient, card: Address, chainId: 
       client.readContract({ address: module, abi: delayAbi, functionName: "txExpiration" }),
     ]);
     if (!same(avatar, card) || !same(target, card)) throw new Error("Delay does not target the selected card Safe");
-    results.push({ address: module, card, controllers, head, tail, cooldown, expiration });
+    results.push({ address: module, card, controllers, delayVersion: same(implementation, DELAY_IMPLEMENTATIONS[0]) ? "v5" : "v4", head, tail, cooldown, expiration });
   }
   return results;
 }

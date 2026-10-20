@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { defineChain, encodeAbiParameters, HttpRequestError, RpcRequestError, zeroAddress, type Address, type PublicClient } from "viem";
 import { CustomTokenFailure, diagnoseNetwork, inspectCustomToken, type NetworkDiagnosis, type TokenEntry } from "../src/core/diagnosis";
+import { discoverMamo } from "../src/core/mamo";
+import * as clients from "../src/core/client";
 import { classify, ReadPool } from "../src/core/reads";
 import { readRpcs, rpcFor } from "../src/components/useDiagnosis";
 
@@ -41,6 +43,60 @@ async function scan(nodes: ReturnType<typeof node>[], catalogue = tokens) {
 }
 
 describe("resilient read path", () => {
+  it("retries a failed strategy without querying its registry or successful strategies again", async () => {
+    const registry = vi.fn(async () => [tokens[0].address, tokens[1].address]);
+    const client = node();
+    const pool = new ReadPool(chain, [{ url: "http://localhost:8545", client: client as unknown as PublicClient }], new AbortController().signal, 0);
+    let failures = 0;
+    const inspect = vi.fn(async (strategy: Address) => {
+      if (strategy === tokens[1].address && failures++ < 2) throw new HttpRequestError({ url: "x", status: 503 });
+      return { address: strategy, owner: account, token: strategy, staking: strategy, balance: 1n, decimals: 6 };
+    });
+    const found = await discoverMamo({ readContract: registry } as unknown as PublicClient, account, strategy => pool.run(() => inspect(strategy)));
+    expect(registry).toHaveBeenCalledTimes(1);
+    expect(inspect.mock.calls.filter(([strategy]) => strategy === tokens[0].address)).toHaveLength(1);
+    expect(inspect.mock.calls.filter(([strategy]) => strategy === tokens[1].address)).toHaveLength(3);
+    expect(found.map(result => result.status)).toEqual(["fulfilled", "fulfilled"]);
+  });
+  it("retries only the failed chunk, keeps successful holdings and recovers without duplicates", async () => {
+    let failures = 0;
+    const flaky = node({ fail: calls => calls[0].target.toLowerCase() === tokens[100].address && !calls[0].callData.startsWith("0x313ce567") && failures++ < 2
+      ? new HttpRequestError({ url: "https://rpc.example", status: 503 }) : undefined });
+    const last = await scan([flaky]);
+    expect(last.status).toBe("complete");
+    expect(last.tokens).toHaveLength(249);
+    expect(new Set(last.tokens.map(token => token.address)).size).toBe(249);
+    expect(flaky.getBlock).toHaveBeenCalledTimes(1);
+    const calls = flaky.readContract.mock.calls.map(([args]) => (args.args![0] as Call[])[0]);
+    expect(calls.filter(c => c.target.toLowerCase() === tokens[0].address)).toHaveLength(1);
+    expect(calls.filter(c => c.target.toLowerCase() === tokens[100].address && !c.callData.startsWith("0x313ce567"))).toHaveLength(3);
+  });
+  it("uses 20/40/60-second timeouts, stops after two retries and clears retry status", async () => {
+    const client = node();
+    const factory = vi.spyOn(clients, "publicClient").mockReturnValue(client as unknown as PublicClient);
+    try {
+      const progress = vi.fn();
+      const pool = new ReadPool(chain, [{ url: "https://rpc.example" }], new AbortController().signal, 0, progress);
+      const read = vi.fn(async () => { throw new HttpRequestError({ url: "https://rpc.example", status: 503 }); });
+      await expect(pool.run(read)).rejects.toThrow();
+      expect(factory.mock.calls.map(call => call[2])).toEqual([20_000, 40_000, 60_000]);
+      expect(read).toHaveBeenCalledTimes(3);
+      expect(progress.mock.calls.map(([timeouts]) => timeouts)).toEqual([[40_000], [60_000], []]);
+    } finally { factory.mockRestore(); }
+  });
+  it("cancels a pending retry and does not retry contract reverts", async () => {
+    const abort = new AbortController(), client = node();
+    const pool = new ReadPool(chain, [{ url: "http://localhost:8545", client: client as unknown as PublicClient }], abort.signal, 0,
+      () => abort.abort());
+    const read = vi.fn(async () => { throw new HttpRequestError({ url: "x", status: 503 }); });
+    await expect(pool.run(read)).rejects.toThrow(/Cancelled/);
+    expect(read).toHaveBeenCalledTimes(1);
+    const revert = vi.fn(async () => { throw new RpcRequestError({ url: "x", body: {}, error: { code: 3, message: "execution reverted" } }); });
+    const another = new ReadPool(chain, [{ url: "http://localhost:8545", client: client as unknown as PublicClient }], new AbortController().signal, 0);
+    await expect(another.run(revert)).rejects.toThrow();
+    expect(revert).toHaveBeenCalledTimes(1);
+  });
+
   it("classifies rate limits, stale state and reverts separately", () => {
     expect(classify(rateLimited())).toBe("rate");
     expect(classify(stale())).toBe("state");
