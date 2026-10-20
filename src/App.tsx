@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatUnits, type Address, type EIP1193Provider, type Hex } from "viem";
-import { chains, chainById } from "./catalog/chains";
+import { chainById } from "./catalog/chains";
 import { products } from "./catalog/products";
-import { address, parseAmount, publicClient, same } from "./core/client";
+import { address, assertChain, parseAmount, publicClient, same } from "./core/client";
 import { inspectAccount } from "./core/inspect";
 import { recoveryAction, safeAction, sendAction, transferCall, approveSafeProposal, safeReceiptSucceeded } from "./core/actions";
 import { verifyTokenReceipt, type ReceiptExpectation } from "./core/receipts";
@@ -13,6 +13,9 @@ import { useAccount } from "wagmi";
 import { ConnectKitProvider } from "connectkit";
 import { WalletButton } from "./components/WalletProvider";
 import { PrepareWallet } from "./components/PrepareWallet";
+import { DiagnosisPanel } from "./components/DiagnosisPanel";
+import { useDiagnosis, rpcFor, type RpcOverrides } from "./components/useDiagnosis";
+import { type NetworkDiagnosis, type TokenHolding } from "./core/diagnosis";
 import { StockTokens } from "./components/StockTokens";
 import { LegacyPanel } from "./components/LegacyPanel";
 import { CallDetails } from "./components/CallDetails";
@@ -30,13 +33,15 @@ export function App() {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [chainId, setChainId] = useState(100);
   const chain = chainById(chainId);
-  const [rpc, setRpc] = useState(chain.rpcUrls.default.http[0] ?? "");
-  const [account, setAccount] = useState("");
+  const [rpcOverrides, setRpcOverrides] = useState<RpcOverrides>({});
+  const rpc = rpcFor(chainId, rpcOverrides);
+  const [account, setAccount] = useState(() => readProgress().accounts.at(-1)?.address ?? "");
   const [snapshot, setSnapshot] = useState<AccountSnapshot>();
   const [progress, setProgress] = useState(readProgress);
   const connection = useAccount();
   const walletAddress = connection.address;
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const diagnosis = useDiagnosis(account, walletAddress, rpcOverrides);
+  const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
   const [accessPath, setAccessPath] = useState<"owner" | "recovery">("recovery");
   const [tab, setTab] = useState("transfer");
   const [busy, setBusy] = useState(false);
@@ -81,7 +86,9 @@ export function App() {
     if (!selected) throw new Error(t("Conecte sua carteira primeiro.", "Connect your wallet first."));
     return selected as EIP1193Provider;
   }
-  function goToStep(next: 1 | 2 | 3) { setStep(next); setReview(undefined); setReviewed(false); }
+  function goToStep(next: 0 | 1 | 2 | 3) {
+    setStep(next > 0 && !snapshot ? 0 : next); setReview(undefined); setReviewed(false);
+  }
   useEffect(() => { setReview(undefined); setReviewed(false); }, [walletAddress, connection.connector?.uid, connection.chainId]);
   function requireClient() { if (!client) throw new Error(t("Informe um RPC válido.", "Enter a valid RPC.")); return client; }
   function requireSnapshot() {
@@ -94,13 +101,19 @@ export function App() {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
   }
-  function chooseChain(id: number) {
-    setChainId(id); setRpc(chainById(id).rpcUrls.default.http[0] ?? "");
-    resetInspection();
-  }
   function resetInspection() {
     setSnapshot(undefined); setReview(undefined); setPositions([]); setCoveredRequests([]); setScanProgress(""); setMamoPositions([]); setPositionFailures([]);
-    setCardDelay(undefined); setQueue([]); setReviewed(false); setStep(1);
+    setCardDelay(undefined); setQueue([]); setReviewed(false); setStep(0);
+  }
+  function openDiagnosis(result: NetworkDiagnosis, next: 1 | 2 | 3, assetTab?: string, holding?: TokenHolding) {
+    if (!result.snapshot || !same(result.account, account)) return;
+    resetInspection(); setChainId(result.chainId); setSnapshot(result.snapshot); setStep(next);
+    setPositions(result.positions); setTab(assetTab ?? "transfer");
+    setAccessPath(result.snapshot.owners.some(o => same(o, walletAddress ?? "")) ? "owner" : "recovery");
+    setToken(holding?.address ?? ""); setAmount(holding?.verifiedDecimals !== undefined ? formatUnits(holding.balance, holding.verifiedDecimals) : "");
+    setError(""); setNotice("");
+    setProgress(old => ({ ...old, accounts: old.accounts.some(a => a.chainId === result.chainId && same(a.address, result.account))
+      ? old.accounts : [...old.accounts, { chainId: result.chainId, address: result.account, label: `Account ${short(result.account)}` }].slice(-100) }));
   }
   function openReview(action: PreparedAction) {
     if (uncertain) throw new Error(t("Confira a transação pendente antes de preparar outra.", "Check the pending transaction before preparing another."));
@@ -128,6 +141,7 @@ export function App() {
     setUncertain(false); setReview(undefined); setReviewed(false);
     setNotice(t("Execução confirmada. Atualize as posições para conferir as próximas etapas.", "Execution confirmed. Refresh positions to check the next steps."));
     await refresh();
+    diagnosis.rescan(chainId);
   }
   async function prepareTransfer(card = false) {
     const safe = requireSnapshot();
@@ -192,16 +206,17 @@ export function App() {
           <p className="eyebrow">{t("SEU CAMINHO", "YOUR PATH")}</p>
           <nav className="steps" aria-label={t("Etapas", "Steps")}>
             {[
+              [t("Diagnóstico", "Diagnosis"), t("Todas as redes, automaticamente", "All networks, automatically")],
               [t("Recuperar acesso", "Recover access"), t("Para contas com passkey", "For passkey accounts")],
               [t("Preparar carteiras", "Prepare wallets"), t("Conexão, destino e gás", "Connection, destination and gas")],
               [t("Mover o dinheiro", "Move funds"), t("Saldos e investimentos", "Balances and investments")],
-            ].map(([title, subtitle], i) => <button key={title} disabled={busy} aria-current={step === i + 1 ? "step" : undefined} className={step === i + 1 ? "nav-active" : ""} onClick={() => goToStep((i + 1) as 1 | 2 | 3)}>
-              <span className="step-number">{i + 1}</span><span>{title}<small>{subtitle}</small></span>
+            ].map(([title, subtitle], i) => <button key={title} disabled={busy} aria-current={step === i ? "step" : undefined} className={step === i ? "nav-active" : ""} onClick={() => goToStep(i as 0 | 1 | 2 | 3)}>
+              <span className="step-number">{i}</span><span>{title}<small>{subtitle}</small></span>
             </button>)}
           </nav>
           <div className="saved"><p className="eyebrow">{t("CONTAS SALVAS", "SAVED ACCOUNTS")}</p>
             {progress.accounts.length === 0 && <p className="muted small">{t("As contas consultadas ficam salvas neste navegador.", "Inspected accounts are saved in this browser.")}</p>}
-            {progress.accounts.map(a => <button key={`${a.chainId}:${a.address}`} className="saved-account" disabled={busy} onClick={() => { chooseChain(a.chainId); setAccount(a.address); }}>{short(a.address)}<small>{chainById(a.chainId).name}</small></button>)}
+            {[...new Map(progress.accounts.map(a => [a.address.toLowerCase(), a])).values()].map(a => <button key={a.address} className="saved-account" disabled={busy} onClick={() => { setAccount(a.address); resetInspection(); }}>{short(a.address)}<small>{t("Diagnosticar em todas as redes", "Diagnose across all networks")}</small></button>)}
             <div className="row"><button className="text-button" onClick={() => downloadProgress(progress)}>{t("Exportar progresso", "Export progress")}</button>
               <button className="text-button" disabled={busy} onClick={() => importRef.current?.click()}>{t("Importar", "Import")}</button></div>
             <input ref={importRef} hidden type="file" accept=".json,application/json" onChange={e => {
@@ -211,28 +226,24 @@ export function App() {
           <a className="source-link" href="https://github.com/usePicnic/picnic-recovery" target="_blank" rel="noreferrer">GitHub ↗</a>
         </aside>
         <div className="content">
-          {step === 1 ? <section className="panel connection">
-            <p className="eyebrow">{t("PASSO 1 / RECUPERAR ACESSO", "STEP 1 / RECOVER ACCESS")}</p>
-            <div className="section-title"><span className="dot" /><h2>{t("Vamos encontrar sua conta.", "Let’s find your account.")}</h2></div>
-            <div className="grid two">
-              <Field label={t("Rede", "Network")}><select value={chainId} disabled={busy} onChange={e => chooseChain(Number(e.target.value))}>{chains.map(c => <option value={c.id} key={c.id}>{c.name}</option>)}</select></Field>
-              <Field label={t("Safe ou carteira antiga", "Safe or legacy wallet")}><input placeholder="0x…" value={account} disabled={busy} spellCheck={false} onChange={e => { setAccount(e.target.value); resetInspection(); }} /></Field>
-            </div>
-            <details><summary>{t("Configurar RPC", "Configure RPC")}</summary><Field label="RPC URL"><input disabled={busy} value={rpc} type="url" onChange={e => { setRpc(e.target.value); resetInspection(); }} /></Field>
-              <p className="muted small">{t("O RPC recebe consultas públicas. Você pode usar seu próprio nó. O endereço não é salvo nem exportado.", "The RPC receives public queries. You can use your own node. Its URL is not saved or exported.")}</p></details>
-            <button disabled={busy || !account || !client} onClick={() => run(refresh)}>{busy ? t("Consultando…", "Working…") : t("Consultar conta →", "Inspect account →")}</button>
-          </section> : <section className="panel compact account-context">
+          {step === 0 ? <DiagnosisPanel account={account} setAccount={value => { setAccount(value); resetInspection(); }}
+            wallet={walletAddress} lang={lang} busy={busy} results={diagnosis.results} gas={diagnosis.gas} overrides={rpcOverrides}
+            setRpc={(id, value) => { resetInspection(); setRpcOverrides(old => ({ ...old, [id]: value })); }}
+            rescan={diagnosis.rescan} open={openDiagnosis} /> : <section className="panel compact account-context">
             <div><span className="small muted">{chain.name}</span><p className="mono small">{snapshot?.address ?? t("Conta ainda não consultada", "Account not inspected yet")}</p></div>
-            <button className="text-button" disabled={busy} onClick={() => goToStep(1)}>{t("Alterar conta ou rede", "Change account or network")}</button>
+            <button className="text-button" disabled={busy} onClick={() => goToStep(0)}>{t("Voltar ao diagnóstico de todas as redes", "Back to all-network diagnosis")}</button>
           </section>}
+          {step !== 0 && diagnosis.results.some(r => r.status === "scanning" || r.status === "queued") && <p className="small muted" role="status">{t("O diagnóstico das outras redes continua em segundo plano.", "Diagnosis of the other networks continues in the background.")}</p>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}
           {uncertain && <div className="message warning" role="alert">
             <strong>{t("Uma transação foi enviada. Confira o resultado antes de repetir.", "A transaction was submitted. Check its result before repeating.")}</strong>
             {lastHash && <><p className="mono">{lastHash}</p><button className="outline" disabled={busy} onClick={() => run(async () => {
               const record = progress.transactions.find(tx => tx.hash === lastHash);
-              if (!record || record.chainId !== chainId) throw new Error(t("Selecione a rede da transação pendente.", "Select the pending transaction's network."));
-              const receipt = await requireClient().getTransactionReceipt({ hash: lastHash });
+              if (!record) throw new Error("Pending transaction record not found");
+              const receiptClient = publicClient(chainById(record.chainId), rpcFor(record.chainId, rpcOverrides));
+              await assertChain(receiptClient, record.chainId);
+              const receipt = await receiptClient.getTransactionReceipt({ hash: lastHash });
               if (receipt.status === "success") {
                 if (record.expectation?.safe) safeReceiptSucceeded(receipt.logs, record.expectation.safe, record.expectation.safeHash);
                 if (record.expectation?.receive) verifyTokenReceipt(receipt, record.expectation.receive);
@@ -240,7 +251,9 @@ export function App() {
               setNotice(`${t("Recibo", "Receipt")}: ${receipt.status}. ${t("Atualize a conta e confira o resultado da operação.", "Refresh the account and verify the operation result.")}`);
               setProgress(old => ({ ...old, transactions: old.transactions.map(tx => tx.hash === lastHash ? { ...tx, status: receipt.status === "success" ? "confirmed" : "reverted" } : tx) }));
               const other = progress.transactions.find(tx => tx.hash !== lastHash && tx.status === "pending");
-              setUncertain(Boolean(other)); setLastHash(other?.hash); setReview(undefined); await refresh();
+              setUncertain(Boolean(other)); setLastHash(other?.hash); setReview(undefined);
+              if (same(record.account, account)) diagnosis.rescan(record.chainId);
+              if (record.chainId === chainId && snapshot) await refresh();
             })}>{t("Conferir recibo", "Check receipt")}</button></>}
           </div>}
           {step === 1 && <section className="panel">

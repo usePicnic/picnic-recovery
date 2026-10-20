@@ -16,7 +16,13 @@ Guardian approvals use `multiConfirmRecovery` with a nonce-bound EIP-712 signatu
 
 Builds are static Vite assets with relative paths. The packaged archive has deterministic tar metadata, SHA-256 checksums for every included file and the source commit in `BUILD.json`. Rebuild from the lockfile and compare checksums; hosting is optional.
 
-## Wallet connection and three-step flow
+## Automatic diagnosis and three-step flow
+
+Step 0 starts automatically after a valid account address is entered (500 ms debounce), or restored from local progress. All ten configured networks run independently and publish incremental results. Changing the address or RPC configuration cancels stale results and further batches; in-flight RPC calls retain their 20-second transport timeout. Diagnosis continues while the user opens a result in steps 1–3. Opening a result carries its network into subsequent reviews; it does not request a wallet network switch.
+
+`diagnosis.ts` verifies RPC chain identity and inspects the account before scanning native balance, local token balances, known investment positions (including pending requests with zero shares), Polygon basket ownership and Base MAMO discovery. Token balance reads use the account snapshot block, bounded multicall batches where available, and small direct-read groups elsewhere. Found token decimals are verified on-chain. RPC/contract failures remain partial or unavailable, never empty balances. The local catalogue is not universal, and basket contents, separate card/controller addresses and assets absent from the catalogue still need further inspection. Connected-wallet gas is separate from the account's asset balance; each transaction still rechecks state and estimates gas.
+
+`src/catalog/tokens.json` contains 9,579 deduplicated public token entries derived from Picnic `common/assets-v2.json` at commit `e0153e2e79fed487a1a6adbdb17d74685a58c7a7`, restricted to supported chains and augmented with Polygon token entries in the local legacy catalogue. Only chain ID, address, name, symbol and decimals are retained. Native tokens are checked separately. Catalogue metadata is not proof that a contract remains deployed or transferable.
 
 The interface groups access recovery, sender/destination/gas preparation, and asset exits. ConnectKit upstream supplies the external-wallet modal (Picnic uses a fork of this same library); Wagmi discovers injected providers. The selected connector supplies the EIP-1193 provider to the existing signing functions. Changing wallet/account/network invalidates the transaction review. React 18 is pinned to match ConnectKit's supported peer range. WalletConnect QR relays are not configured; an installed wallet or wallet browser is required. No Picnic connector keys are reused.
 
