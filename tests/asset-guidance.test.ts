@@ -5,6 +5,7 @@ import { zeroAddress, type Address } from "viem";
 import { DiagnosisPanel } from "../src/components/DiagnosisPanel";
 import { emptyDiagnosis } from "../src/core/diagnosis";
 import type { AccountSnapshot } from "../src/core/types";
+import { diagnosisNext, needsAttention } from "../src/components/diagnosisFlow";
 
 vi.mock("../src/components/WalletProvider", () => ({ WalletButton: () => null }));
 vi.mock("../src/components/ChainLogo", () => ({ ChainLogo: () => null }));
@@ -25,4 +26,32 @@ it("guides a custom-token-only owner to fund gas, without duplicating the asset 
   expect(html).toContain("precisa de XDAI para taxas");
   expect(html).not.toContain("Nenhum saldo encontrado");
   expect(html.match(/<tr>/g)).toHaveLength(2); // header + one custom holding
+  expect(html).not.toContain("token-mark");
+  expect(html).not.toContain(">Retirar<");
+  expect(html).toContain("Próximo passo");
+});
+
+it("waits for every network and custom-token read before choosing the next step", () => {
+  const result = { ...emptyDiagnosis(100, account), status: "complete" as const, snapshot, nativeBalance: 1n };
+  expect(diagnosisNext([result, emptyDiagnosis(1, account)], account, {}, [])).toBeUndefined();
+  expect(diagnosisNext([result], account, {}, [{ chainId: 100, address: token, status: "loading" }])).toBeUndefined();
+  expect(diagnosisNext([result], account, {}, [])?.step).toBe(2);
+  expect(diagnosisNext([{ ...result, snapshot: undefined, status: "unavailable" }], account, {}, [])).toBeUndefined();
+});
+
+it("keeps incomplete and unknown balances in pending items, without listing healthy empty networks", () => {
+  const result = { ...emptyDiagnosis(100, account), status: "complete" as const, snapshot, nativeBalance: 0n };
+  expect(needsAttention(result, account)).toBe(false);
+  expect(needsAttention({ ...result, status: "partial" }, account)).toBe(true);
+  expect(needsAttention({ ...result, unreadableTokens: [{ chainId: 100, address: token, name: "unknown" }] }, account)).toBe(true);
+  expect(needsAttention({ ...result, nativeBalance: 1n }, account, { address: account, error: "unavailable" })).toBe(true);
+  expect(needsAttention({ ...result, nativeBalance: 1n }, account, { address: account, balance: 1n })).toBe(false);
+});
+
+it("prioritizes access recovery over an already-controlled network holding assets", () => {
+  const owned = { ...emptyDiagnosis(100, account), status: "complete" as const, snapshot, nativeBalance: 1n };
+  const other = { ...owned, chainId: 1, snapshot: { ...snapshot, chainId: 1, version: "1.4.1", owners: [token] } };
+  const next = diagnosisNext([owned, other], account, {}, []);
+  expect(next?.step).toBe(1);
+  expect(next?.result.chainId).toBe(1);
 });

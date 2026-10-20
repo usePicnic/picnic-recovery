@@ -13,6 +13,7 @@ import { useAccount } from "wagmi";
 import { ConnectKitProvider } from "connectkit";
 import { PrepareWallet } from "./components/PrepareWallet";
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
+import { AssetTable } from "./components/AssetTable";
 import { useDiagnosis, rpcFor, type RpcOverrides } from "./components/useDiagnosis";
 import { type NetworkDiagnosis, type TokenHolding } from "./core/diagnosis";
 import { StockTokens } from "./components/StockTokens";
@@ -243,6 +244,12 @@ export function App() {
               <p className="small muted">{t("Carteira conectada", "Connected wallet")}: <span className="mono">{walletAddress ?? t("nenhuma", "none")}</span></p></div>
             <button className="text-button" disabled={busy} onClick={() => goToStep(0)}>{t("Trocar carteira ou voltar ao diagnóstico", "Change wallet or back to diagnosis")}</button>
           </section>}
+          {step === 1 || step === 2 ? <div className="panel compact">
+            <Field label={t("Conta nesta rede", "Account on this network")}><select aria-label={t("Conta nesta rede", "Account on this network")} value={chainId} disabled={busy} onChange={event => {
+              const result = diagnosis.results.find(r => r.chainId === Number(event.target.value));
+              if (result?.snapshot) openDiagnosis(result, step);
+            }}>{diagnosis.results.filter(r => r.snapshot && same(r.account, account)).map(r => <option key={r.chainId} value={r.chainId}>{chainById(r.chainId).name}</option>)}</select></Field>
+          </div> : null}
           {step !== 0 && diagnosis.results.some(r => r.status === "scanning" || r.status === "queued") && <p className="small muted" role="status">{t("O diagnóstico das outras redes continua em segundo plano.", "Diagnosis of the other networks continues in the background.")}</p>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}
@@ -292,6 +299,8 @@ export function App() {
             <p className="eyebrow">{t("PASSO 3 / MOVER O DINHEIRO", "STEP 3 / MOVE FUNDS")}</p>
             <h2>{t("Retire os ativos, no seu ritmo.", "Withdraw assets at your pace.")}</h2>
             <p>{t("Escolha de onde retirar. Alguns investimentos e o cartão têm uma espera antes de concluir. Revise cada operação e mantenha gás para as próximas etapas.", "Choose where to withdraw from. Some investments and the card require a waiting period. Review each operation and keep gas for the next steps.")}</p>
+            <AssetTable lang={lang} busy={busy} ready={diagnosis.results.length > 0} results={diagnosis.results} custom={diagnosis.customTokens}
+              open={openDiagnosis} addCustom={diagnosis.addCustomToken} removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} />
             <nav className="asset-tabs" aria-label={t("Origem dos ativos", "Asset source")}>{nav.map(([id, label]) => <button key={id} disabled={busy} aria-current={tab === id ? "page" : undefined} className={tab === id ? "nav-active" : ""} onClick={() => { setTab(id); setReview(undefined); }}>{label}</button>)}</nav>
           </section>}
           {step === 1 && snapshot && <section className="panel compact">

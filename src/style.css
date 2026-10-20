@@ -27,9 +27,8 @@
 .asset-table tbody tr:hover{background:#F5F7F3}
 .asset-table th[scope=row],.asset-table td{padding:13px 16px;text-align:left;vertical-align:middle;font-weight:400}
 .asset-table .numeric{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:14px;color:#211D1A}
-.token-cell,.network-cell{display:flex;align-items:center;gap:10px;min-width:0}
+.network-cell{display:flex;align-items:center;gap:10px;min-width:0}
 .network-cell{white-space:nowrap;color:#404040}
-.token-mark{flex-shrink:0;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#EFF1EE;color:#211D1A;font-size:10px;font-weight:700;letter-spacing:.3px}
 .token-text{display:flex;flex-direction:column;min-width:0}
 .token-text strong{font-size:14px;font-weight:600;color:#211D1A;overflow-wrap:anywhere}
 .token-text small{font-size:11px;color:#5A5F58;overflow-wrap:anywhere}
@@ -76,3 +75,22 @@
 .table-actions{justify-content:flex-start}
 .network-row{padding:16px}
 .custom-token-fields{flex-direction:column;align-items:stretch}}
+/* Diagnosis: read-only holdings, actionable issues, one continuation. */
+.diagnosis-tabs{display:flex;gap:24px;border-bottom:1px solid #D8DCD5;margin-top:24px}
+.diagnosis-tabs button{background:transparent;color:#5A5F58;border:0;border-bottom:3px solid transparent;border-radius:0;padding:12px 0;display:flex;align-items:center;gap:8px}
+.diagnosis-tabs button:hover:not(:disabled){background:transparent;color:#211D1A}
+.diagnosis-tabs button[aria-selected=true]{border-bottom-color:#211D1A;color:#211D1A}
+.tab-count{background:#EFF1EE;border-radius:99px;padding:1px 7px;font-size:11px}
+.diagnosis-tabs button[aria-selected=true] .tab-count{background:#CCFF00}
+.scan-status{display:flex;align-items:center;gap:14px}.scan-status strong{font-size:14px}.scan-status p{margin:4px 0 0;font-size:12px;color:#5A5F58}
+.scan-spinner{flex-shrink:0;width:24px;height:24px;border:3px solid #D8DCD5;border-top-color:#211D1A;border-radius:50%;animation:scan-spin .8s linear infinite}
+.scan-complete{display:grid;place-items:center;flex-shrink:0;width:24px;height:24px;border-radius:50%;background:#CCFF00;color:#211D1A;font-weight:700}
+.diagnosis-progress progress{display:block;width:100%;height:6px;margin-top:14px;border:0;border-radius:99px;overflow:hidden;background:#D8DCD5;accent-color:#211D1A}
+.diagnosis-progress progress::-webkit-progress-bar{background:#D8DCD5}.diagnosis-progress progress::-webkit-progress-value{background:#211D1A}.diagnosis-progress progress::-moz-progress-bar{background:#211D1A}
+.diagnosis-continue{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:26px 0;padding-top:22px;border-top:1px solid #D8DCD5}.diagnosis-continue p{margin:0;max-width:440px}.next-step{border-radius:99px;white-space:nowrap;padding:14px 24px}
+.pending-details{margin-bottom:0}.network-head{align-items:flex-start}.network-head .network-cell{flex-shrink:0}
+@keyframes scan-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.scan-spinner{animation:none;border-top-color:#211D1A}}
+@media(max-width:640px){.diagnosis-continue{flex-direction:column;align-items:stretch;gap:14px}.network-head{flex-direction:column;gap:8px}}
+
+.pending-networks{display:flex;flex-wrap:wrap;gap:12px 20px;margin:16px 0}.scan-complete.has-pending{background:#FEF8E6;color:#6D5203;border:1px solid #FBDF88}

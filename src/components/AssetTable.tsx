@@ -12,6 +12,7 @@ type Open = (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: To
 type AddResult = Promise<"invalid-address" | "duplicate" | "catalogue" | "cancelled" | "not-contract" | "no-balance" | "rpc" | undefined>;
 type Props = {
   lang: Lang; busy: boolean; ready: boolean; results: NetworkDiagnosis[]; custom: CustomTokenState[]; open: Open;
+  showActions?: boolean;
   addCustom: (chainId: number, token: string) => AddResult; removeCustom: (chainId: number, token: Address) => void; retryCustom: (chainId: number, token: Address) => void;
 };
 type Row = { key: string; chainId: number; symbol: string; name: string; badge?: string; balance: ReactNode; action?: ReactNode; order: number };
@@ -28,10 +29,9 @@ export function formatAmount(value: bigint, decimals: number | undefined, lang: 
 function Amount({ value, decimals, lang }: { value: bigint; decimals?: number; lang: Lang }) {
   return <span title={decimals === undefined ? undefined : formatUnits(value, decimals)}>{formatAmount(value, decimals, lang)}</span>;
 }
-const initials = (symbol: string) => symbol.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 3).toUpperCase() || "?";
 const PAGE = 40;
 
-export function AssetTable({ lang, busy, ready, results, custom, open, addCustom, removeCustom, retryCustom }: Props) {
+export function AssetTable({ lang, busy, ready, results, custom, open, addCustom, removeCustom, retryCustom, showActions = true }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [all, setAll] = useState(false);
   const rows: Row[] = [];
@@ -90,18 +90,25 @@ export function AssetTable({ lang, busy, ready, results, custom, open, addCustom
     <div className="section-title"><h3 id="assets-title">{t("Ativos encontrados", "Assets found")}</h3>{rows.length > 0 && <span className="chip">{rows.length} {t(rows.length === 1 ? "item" : "itens", rows.length === 1 ? "item" : "items")}</span>}</div>
     {rows.length > 0 ? <div className="table-wrap"><table className="asset-table">
       <caption className="sr-only">{t("Ativos por token e rede", "Assets by token and network")}</caption>
-      <thead><tr><th scope="col">Token</th><th scope="col">{t("Rede", "Network")}</th><th scope="col" className="numeric">{t("Saldo", "Balance")}</th><th scope="col"><span className="sr-only">{t("Ação", "Action")}</span></th></tr></thead>
+      <thead><tr><th scope="col">Token</th><th scope="col">{t("Rede", "Network")}</th><th scope="col" className="numeric">{t("Saldo", "Balance")}</th>{showActions && <th scope="col"><span className="sr-only">{t("Ação", "Action")}</span></th>}</tr></thead>
       <tbody>{visible.map(row => <tr key={row.key}>
-        <th scope="row" data-label="Token"><span className="token-cell"><span className="token-mark" aria-hidden="true">{initials(row.symbol)}</span>
-          <span className="token-text"><strong>{row.symbol}</strong><small>{row.name !== row.symbol ? row.name : ""}{row.badge && <em className="token-badge">{row.badge}</em>}</small></span></span></th>
+        <th scope="row" data-label="Token"><span className="token-text"><strong>{row.symbol}</strong><small>{row.name !== row.symbol ? row.name : ""}{row.badge && <em className="token-badge">{row.badge}</em>}</small></span></th>
         <td data-label={t("Rede", "Network")}><span className="network-cell"><ChainLogo id={row.chainId} />{chainById(row.chainId).name}</span></td>
         <td data-label={t("Saldo", "Balance")} className="numeric">{row.balance}</td>
-        <td className="action-cell">{row.action}</td>
+        {showActions && <td className="action-cell">{row.action}</td>}
       </tr>)}</tbody>
     </table></div> : <p className="empty-assets">{!ready ? t("Conecte uma carteira para ver os ativos.", "Connect a wallet to see assets.") : scanning ? t("Procurando ativos em todas as redes…", "Looking for assets on every network…") : t("Nenhum ativo encontrado nas redes verificadas. Veja abaixo o que não pôde ser verificado.", "No assets found on the checked networks. See below what could not be verified.")}</p>}
     {rows.length > PAGE && <button className="text-button" onClick={() => setAll(!all)}>{all ? t("Mostrar menos", "Show fewer") : t(`Mostrar todos (${rows.length})`, `Show all (${rows.length})`)}</button>}
     {ready && scanning && rows.length > 0 && <p className="small muted" role="status">{t("Mais ativos podem aparecer enquanto as redes são consultadas.", "More assets may appear while networks are being checked.")}</p>}
     <CustomTokenForm lang={lang} busy={busy || !ready} add={addCustom} />
+    {!showActions && custom.length > 0 && <details className="custom-token-management">
+      <summary>{t("Gerenciar tokens adicionados", "Manage added tokens")}</summary>
+      {custom.map(item => <div className="row small" key={`${item.chainId}:${item.address}`}>
+        <span>{item.token?.symbol ?? `${item.address.slice(0, 6)}…${item.address.slice(-4)}`} · {chainById(item.chainId).name}</span>
+        {item.status === "error" && <button className="text-button" disabled={busy} onClick={() => retryCustom(item.chainId, item.address)}>{t("Tentar de novo", "Retry")}</button>}
+        <button className="text-button" disabled={busy} onClick={() => removeCustom(item.chainId, item.address)} aria-label={`${t("Remover", "Remove")} ${item.address}`}>{t("Remover", "Remove")}</button>
+      </div>)}
+    </details>}
   </section>;
 }
 

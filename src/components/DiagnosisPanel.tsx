@@ -7,6 +7,7 @@ import { rpcFor, type CustomTokenState, type RpcOverrides } from "./useDiagnosis
 import { WalletButton } from "./WalletProvider";
 import { AssetTable } from "./AssetTable";
 import { ChainLogo } from "./ChainLogo";
+import { diagnosisNext, needsAttention, withCustomHoldings } from "./diagnosisFlow";
 
 type Props = {
   account: string; setAccount: (value: string) => void; onUseWallet: () => void; wallet?: Address; lang: "pt" | "en"; busy: boolean;
@@ -19,14 +20,17 @@ type Props = {
 export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang, busy, results, gas, overrides, setRpc, rescan, open, custom, addCustom, removeCustom, retryCustom }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const finished = results.filter(r => !["queued", "scanning"].includes(r.status)).length;
-  // Custom balances participate in network guidance without duplicating their
-  // separate table rows or changing the automatic catalogue's coverage counts.
-  const networkResults = results.map(result => ({
-    ...result,
-    tokens: [...result.tokens, ...custom.flatMap(item => item.status === "ready" && item.token && item.chainId === result.chainId
-      && item.token.account.toLowerCase() === result.account.toLowerCase() && item.token.balance > 0n ? [item.token] : [])],
-  }));
+  const scanning = results.length > 0 && finished < results.length;
+  const loading = scanning || custom.some(item => item.status === "loading");
+  const networkResults = withCustomHoldings(results, custom);
   const ordered = networkResults.sort((a, b) => Number(hasAssets(b)) - Number(hasAssets(a)) || Number(!!b.snapshot?.recoveries.length) - Number(!!a.snapshot?.recoveries.length) || chains.findIndex(c => c.id === a.chainId) - chains.findIndex(c => c.id === b.chainId));
+  const pending = ordered.filter(result => needsAttention(result, wallet, gas[result.chainId]));
+  const incomplete = pending.filter(result => result.status === "partial" || result.status === "unavailable");
+  const otherPending = pending.filter(result => !incomplete.includes(result) || ["fund", "recover", "waiting", "finalize", "owner-required", "unsupported"].includes(nextAction(result, wallet, gas[result.chainId])));
+  const customErrors = custom.filter(item => item.status === "error");
+  const pendingCount = otherPending.length + (incomplete.length > 0 ? 1 : 0) + customErrors.length;
+  const continuation = diagnosisNext(results, wallet, gas, custom);
+  const [view, setView] = useState<"assets" | "pending">("assets");
   const separate = !!account && (!wallet || account.toLowerCase() !== wallet.toLowerCase());
   const [manual, setManual] = useState(separate);
   return <section className="panel diagnosis">
@@ -46,26 +50,62 @@ export function DiagnosisPanel({ account, setAccount, onUseWallet, wallet, lang,
       <p className="small muted">{t("A carteira que assina pode não ser a conta que guarda os ativos. Informe aqui o endereço da Safe, do cartão ou do controlador. A consulta continua sendo só leitura.", "The signing wallet may not be the account holding the assets. Enter the Safe, card or controller address here. The scan remains read-only.")}</p>
       <label className="field"><span>{t("Endereço a consultar", "Address to inspect")}</span><input value={account} disabled={busy} placeholder="0x…" spellCheck={false} autoComplete="off" onChange={e => setAccount(e.target.value)} /></label>
     </details>
-    {results.length > 0 && <div className="diagnosis-progress" role="status" aria-live="polite">{finished < results.length
-      ? t(`Verificando ${results.length} redes em segundo plano · ${finished} concluídas`, `Checking ${results.length} networks in the background · ${finished} finished`)
-      : t("Consulta concluída. Confira os ativos e os próximos passos.", "Scan finished. Review assets and next steps.")}</div>}
-    <AssetTable lang={lang} busy={busy} ready={results.length > 0} results={results} custom={custom} open={open} addCustom={addCustom} removeCustom={removeCustom} retryCustom={retryCustom} />
-    {results.length > 0 && <section className="networks" aria-labelledby="networks-title">
-      <div className="section-title"><h3 id="networks-title">{t("Redes e próximos passos", "Networks and next steps")}</h3>
-        <button className="text-button" disabled={busy} onClick={() => rescan()}>{t("Atualizar todas", "Refresh all")}</button></div>
-      <ul className="network-list">{ordered.map(result => <NetworkRow key={result.chainId} result={result} wallet={wallet} gas={gas[result.chainId]} lang={lang} busy={busy} open={open} rescan={rescan} setAccount={setAccount} />)}</ul>
-    </section>}
+    {results.length > 0 && <div className={`diagnosis-progress ${loading ? "is-loading" : ""}`}>
+      <div className="scan-status" role="status" aria-live="polite">
+        <span className={loading ? "scan-spinner" : pending.length + customErrors.length > 0 ? "scan-complete has-pending" : "scan-complete"} aria-hidden="true">{loading ? "" : pending.length + customErrors.length > 0 ? "!" : "✓"}</span>
+        <div><strong>{scanning ? t("Buscando seus ativos…", "Finding your assets…") : loading ? t("Verificando tokens adicionados…", "Checking added tokens…") : pending.length + customErrors.length > 0 ? t("Consulta finalizada com pendências", "Scan finished with items needing attention") : t("Diagnóstico concluído", "Diagnosis finished")}</strong>
+          <p>{scanning ? t(`${finished} de ${results.length} redes consultadas. Os saldos aparecem conforme chegam.`, `${finished} of ${results.length} networks checked. Balances appear as they arrive.`)
+            : t("Confira os ativos e as pendências antes de continuar.", "Review assets and items needing attention before continuing.")}</p></div>
+      </div>
+      {scanning && <progress value={finished} max={results.length} aria-label={t("Progresso do diagnóstico", "Diagnosis progress")} />}
+    </div>}
+    <div className="diagnosis-tabs" role="tablist" aria-label={t("Resultado do diagnóstico", "Diagnosis results")}>
+      {(["assets", "pending"] as const).map((id, i) => <button key={id} type="button" role="tab" id={`diagnosis-${id}-tab`} aria-controls={`diagnosis-${id}`} aria-selected={view === id} tabIndex={view === id ? 0 : -1}
+        onClick={() => setView(id)} onKeyDown={event => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - i;
+          setView(next === 0 ? "assets" : "pending");
+          (event.currentTarget.parentElement?.querySelectorAll("button")[next] as HTMLButtonElement | undefined)?.focus();
+        }}>{id === "assets" ? t("Ativos", "Assets") : <>{t("Pendências", "Needs attention")} <span className="tab-count">{pendingCount}</span></>}</button>)}
+    </div>
+    <div id="diagnosis-assets" role="tabpanel" aria-labelledby="diagnosis-assets-tab" hidden={view !== "assets"}>
+      <AssetTable lang={lang} busy={busy} ready={results.length > 0} results={results} custom={custom} open={open} addCustom={addCustom} removeCustom={removeCustom} retryCustom={retryCustom} showActions={false} />
+    </div>
+    <div id="diagnosis-pending" role="tabpanel" aria-labelledby="diagnosis-pending-tab" hidden={view !== "pending"}>
+      <p className="small muted">{t("O que precisa de atenção para recuperar o acesso e mover os ativos.", "What needs attention to recover access and move assets.")}</p>
+      {pending.length + customErrors.length > 0 ? <ul className="network-list">
+        {otherPending.map(result => <NetworkRow key={result.chainId} result={result} wallet={wallet} gas={gas[result.chainId]} lang={lang} />)}
+        {incomplete.length > 0 && <li className="network-row">
+          <strong>{t("Concluir a verificação de saldos", "Complete balance verification")}</strong>
+          <p className="small">{t("Parte das consultas não pôde ser concluída. Os saldos encontrados continuam na tabela; os demais são desconhecidos, não zero. Você pode repetir a consulta em Avançado.", "Some checks could not be completed. Confirmed balances remain in the table; the others are unknown, not zero. You can retry the scan under Advanced.")}</p>
+          <div className="pending-networks">{incomplete.map(result => <span className="network-cell small" key={result.chainId}><ChainLogo id={result.chainId} size={20} />{chainById(result.chainId).name}</span>)}</div>
+          <details><summary>{t("Ver o que falta em cada rede", "See what is missing on each network")}</summary>
+            <ul className="network-list">{incomplete.map(result => <NetworkRow key={result.chainId} result={result} wallet={wallet} gas={gas[result.chainId]} lang={lang} />)}</ul>
+          </details>
+        </li>}
+        {customErrors.map(item => <li className="network-row" key={`${item.chainId}:${item.address}`}><strong>{t("Verificar token adicionado", "Check added token")}</strong>
+          <p className="small">{chainById(item.chainId).name} · <span className="mono">{item.address}</span></p>
+          <p className="small muted">{t("O saldo não pôde ser confirmado. Veja o motivo e tente novamente em Ativos → Gerenciar tokens adicionados.", "The balance could not be confirmed. See the reason and retry under Assets → Manage added tokens.")}</p></li>)}
+      </ul> : <p className="empty-assets">{!results.length ? t("Conecte uma carteira para verificar as pendências.", "Connect a wallet to check for issues.") : loading ? t("As pendências aparecerão conforme a consulta avançar.", "Items needing attention will appear as the scan progresses.") : t("Nenhuma pendência identificada nas verificações realizadas.", "No issues identified in the completed checks.")}</p>}
+    </div>
+    {results.length > 0 && <div className="diagnosis-continue">
+      <p className="small muted">{loading ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
+        : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
+        : t("Ainda não foi possível verificar uma conta compatível. Confira as pendências e tente atualizar a consulta em Avançado.", "A supported account could not be verified yet. Review the issues and retry the scan under Advanced.")}</p>
+      <button className="next-step" disabled={busy || loading || !continuation} onClick={() => { if (continuation) open(continuation.result, continuation.step); }}>{t("Próximo passo →", "Next step →")}</button>
+    </div>}
     <p className="note">{t("A consulta cobre o saldo nativo, tokens do catálogo local, tokens que você adicionar, investimentos conhecidos e propriedade de cestas. Não é um inventário universal: ativos fora do catálogo, conteúdo interno das cestas e contas com outro endereço podem exigir inspeção adicional. Resultados parciais nunca significam saldo zero.", "The scan covers native balances, local-catalogue tokens, tokens you add, known investments and basket ownership. Assets outside the catalogue, basket contents and other account addresses may need further inspection. Partial results never mean zero balance.")}</p>
     <details><summary>{t("Avançado: RPCs de consulta", "Advanced: read RPCs")}</summary>
+      <button className="text-button" disabled={busy || loading || !results.length} onClick={() => rescan()}>{t("Atualizar diagnóstico", "Refresh diagnosis")}</button>
       <p className="small muted">{t("Sem RPC próprio, as consultas usam RPCs públicos e podem alternar entre eles após confirmar a rede (chain ID). Um RPC informado aqui é usado sozinho, também para transações. As URLs não são salvas nem exportadas.", "Without a custom RPC, reads use public RPCs and may switch between them after confirming the chain ID. An RPC entered here is used alone, also for transactions. URLs are not saved or exported.")}</p>
       {chains.map(chain => <RpcField key={`${chain.id}:${rpcFor(chain.id, overrides)}`} label={chain.name} value={rpcFor(chain.id, overrides)} disabled={busy} apply={value => setRpc(chain.id, value)} lang={lang} />)}
     </details>
   </section>;
 }
 
-function NetworkRow({ result, wallet, gas, lang, busy, open, rescan, setAccount }: {
-  result: NetworkDiagnosis; wallet?: Address; gas?: WalletGas; lang: "pt" | "en"; busy: boolean;
-  open: Props["open"]; rescan: (id?: number) => void; setAccount: (value: string) => void;
+function NetworkRow({ result, wallet, gas, lang }: {
+  result: NetworkDiagnosis; wallet?: Address; gas?: WalletGas; lang: "pt" | "en";
 }) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const chain = chainById(result.chainId), action = nextAction(result, wallet, gas);
@@ -92,16 +132,24 @@ function NetworkRow({ result, wallet, gas, lang, busy, open, rescan, setAccount 
   ].filter((line): line is string => !!line);
   const unreadable = result.unreadableTokens.length;
   const repinned = result.tokenBlocks && result.snapshot && result.tokenBlocks.to !== result.snapshot.block;
-  const status = result.status === "queued" ? t("Na fila", "Queued") : result.status === "scanning" ? t("Consultando…", "Scanning…")
-    : result.status === "partial" ? t("Consulta parcial", "Partial scan") : result.status === "unavailable" ? t("Não verificada", "Unverified") : t("Verificada", "Checked");
+  const title = action === "fund" ? t("Adicionar saldo para taxas", "Add funds for fees")
+    : action === "waiting" ? t("Aguardar o prazo de recuperação", "Wait for the recovery delay")
+    : action === "finalize" ? t("Finalizar a recuperação", "Finalize recovery")
+    : action === "recover" ? t("Recuperar o acesso", "Recover access")
+    : action === "owner-required" || action === "connect" ? t("Confirmar a carteira que controla a conta", "Confirm the wallet controlling the account")
+    : action === "unsupported" ? t("Revisar a compatibilidade da conta", "Review account compatibility")
+    : result.status === "partial" || result.status === "unavailable" ? t("Concluir a verificação", "Complete verification")
+    : unreadable > 0 ? t("Conferir saldos não verificados", "Review unverified balances")
+    : t("Conferir as taxas e a consulta", "Review fees and scan coverage");
   return <li className="network-row">
     <div className="network-head">
-      <span className="network-cell"><ChainLogo id={chain.id} size={26} /><strong>{chain.name}</strong></span>
-      <span className={`chip ${result.status === "partial" || result.status === "unavailable" ? "diagnosis-warning" : result.status === "complete" ? "diagnosis-ok" : ""}`}>{status}</span>
+      <strong>{title}</strong>
+      <span className="network-cell small"><ChainLogo id={chain.id} size={20} />{chain.name}</span>
     </div>
     <p className="diagnosis-next">{result.status === "unavailable" ? t("A rede não respondeu ou a conta não pôde ser interpretada. Tente novamente ou configure outro RPC.", "The network did not respond or the account could not be interpreted. Retry or configure another RPC.") : messages[action]}</p>
     {result.cards.length > 0 && <p className="note">{t("Este endereço é uma Safe de cartão. Recupere o controlador antes de retirar pelo cartão.", "This address is a card Safe. Recover its controller before withdrawing through the card.")}</p>}
     {waiting && <p className="small">{t("Finalização a partir de", "Earliest finalization")}: {new Date(Number(waiting.pending.executeAfter) * 1000).toLocaleString(lang)}</p>}
+    <details className="pending-details"><summary>{t("Ver detalhes", "View details")}</summary>
     <p className="small muted network-meta">
       {result.totalTokens > 0 && <span>{result.checkedTokens}/{result.totalTokens} {t("tokens consultados", "tokens checked")}</span>}
       {wallet && <span>{t("Gás da carteira", "Wallet gas")}: {gas?.balance !== undefined ? `${formatUnits(gas.balance, chain.nativeCurrency.decimals)} ${chain.nativeCurrency.symbol}` : gas?.error ? t("não verificado", "unverified") : t("consultando…", "checking…")}</span>}
@@ -113,11 +161,8 @@ function NetworkRow({ result, wallet, gas, lang, busy, open, rescan, setAccount 
       {result.unreadableTokens.slice(0, 20).map(token => <p key={token.address} className="small mono">{token.symbol ?? token.name} · {token.address}</p>)}
     </details>}
     {repinned && <p className="small muted">{t(`Saldos de tokens lidos nos blocos ${result.tokenBlocks!.from}–${result.tokenBlocks!.to}; a conta foi lida no bloco ${result.snapshot!.block}. O RPC não mantinha o estado antigo, então os tokens foram lidos em um bloco mais recente.`, `Token balances read at blocks ${result.tokenBlocks!.from}–${result.tokenBlocks!.to}; the account was read at block ${result.snapshot!.block}. The RPC no longer kept that state, so tokens were read at a newer block.`)}</p>}
-    <div className="row">
-      {result.snapshot && action !== "unsupported" && <button className="outline" disabled={busy} onClick={() => open(result, ["waiting", "finalize", "recover", "owner-required", "connect"].includes(action) ? 1 : 2)}>{["waiting", "finalize", "recover"].includes(action) ? t("Ver recuperação", "View recovery") : t("Ver próximos passos", "View next steps")}</button>}
-      {result.cards.map(card => card.controllers.map(controller => <button key={`${card.address}:${controller}`} className="text-button" disabled={busy} onClick={() => setAccount(controller)}>{t("Diagnosticar controlador", "Diagnose controller")}: {controller.slice(0, 8)}…</button>))}
-      {["partial", "unavailable"].includes(result.status) && <button className="text-button" disabled={busy} onClick={() => rescan(chain.id)}>{t("Tentar novamente", "Retry")}</button>}
-    </div>
+    {result.cards.map(card => card.controllers.map(controller => <p key={`${card.address}:${controller}`} className="small">{t("Controlador", "Controller")}: <span className="mono">{controller}</span></p>))}
+    </details>
   </li>;
 }
 
