@@ -23,6 +23,7 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
   const retryTimeout = Math.max(0, ...results.flatMap(r => [r.retryTimeout ?? 0, ...r.linkedCards?.map(c => c.retryTimeout ?? 0) ?? []]));
   const scanning = results.length > 0 && finished < results.length;
   const loading = scanning || custom.some(item => item.status === "loading");
+  const waitingToContinue = loading || !!identifying || busy;
   const networkResults = withCustomHoldings(results, custom);
   const ordered = networkResults.sort((a, b) => Number(hasAssets(b)) - Number(hasAssets(a)) || Number(!!b.snapshot?.recoveries.length) - Number(!!a.snapshot?.recoveries.length) || chains.findIndex(c => c.id === a.chainId) - chains.findIndex(c => c.id === b.chainId));
   const pending = ordered.filter(result => needsAttention(result, wallet));
@@ -80,11 +81,14 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
     {results.some(result => result.notes?.length) && <details className="small muted"><summary>{t("Observações sobre contas antigas", "Notes about old accounts")}</summary>
       {results.flatMap(result => result.notes?.map(note => <p key={`${result.chainId}:${note}`}>{note}</p>) ?? [])}
     </details>}
-    {results.length > 0 && !recovery && <div className="diagnosis-continue">
-      <p className="small muted">{loading ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
+    {(results.length > 0 || identifying) && !recovery && <div className="diagnosis-continue">
+      <p className="small muted">{waitingToContinue ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
         : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
         : t("Ainda não foi possível verificar uma conta compatível. Confira as pendências e tente atualizar a consulta em Avançado.", "A supported account could not be verified yet. Review the issues and retry the scan under Advanced.")}</p>
-      <button className="next-step" disabled={busy || loading || !continuation} onClick={() => { if (continuation) open(continuation.result, continuation.step); }}>{t("Próximo passo →", "Next step →")}</button>
+      <button className="next-step" aria-busy={waitingToContinue} disabled={waitingToContinue || !continuation} onClick={() => { if (continuation) open(continuation.result, continuation.step); }}>
+        {waitingToContinue && <span className="scan-spinner" aria-hidden="true" />}
+        {waitingToContinue ? t("Aguarde a verificação…", "Checking your accounts…") : t("Próximo passo →", "Next step →")}
+      </button>
     </div>}
     <p className="note">{t("A consulta cobre o saldo nativo, tokens do catálogo local, tokens que você adicionar, investimentos conhecidos e propriedade de cestas. Não é um inventário universal: ativos fora do catálogo, conteúdo interno das cestas e contas com outro endereço podem exigir inspeção adicional. Resultados parciais nunca significam saldo zero.", "The scan covers native balances, local-catalogue tokens, tokens you add, known investments and basket ownership. Assets outside the catalogue, basket contents and other account addresses may need further inspection. Partial results never mean zero balance.")}</p>
     <details><summary>{t("Avançado: RPCs de consulta", "Advanced: read RPCs")}</summary>

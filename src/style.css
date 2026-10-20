@@ -87,7 +87,7 @@
 .scan-complete{display:grid;place-items:center;flex-shrink:0;width:24px;height:24px;border-radius:50%;background:#CCFF00;color:#211D1A;font-weight:700}
 .diagnosis-progress progress{display:block;width:100%;height:6px;margin-top:14px;border:0;border-radius:99px;overflow:hidden;background:#D8DCD5;accent-color:#211D1A}
 .diagnosis-progress progress::-webkit-progress-bar{background:#D8DCD5}.diagnosis-progress progress::-webkit-progress-value{background:#211D1A}.diagnosis-progress progress::-moz-progress-bar{background:#211D1A}
-.diagnosis-continue{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:26px 0;padding-top:22px;border-top:1px solid #D8DCD5}.diagnosis-continue p{margin:0;max-width:440px}.next-step{border-radius:99px;white-space:nowrap;padding:14px 24px}
+.diagnosis-continue{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:26px 0;padding-top:22px;border-top:1px solid #D8DCD5}.diagnosis-continue p{margin:0;max-width:440px}.next-step{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:99px;white-space:nowrap;padding:14px 24px}
 .pending-details{margin-bottom:0}.network-head{align-items:flex-start}.network-head .network-cell{flex-shrink:0}
 @keyframes scan-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.scan-spinner{animation:none;border-top-color:#211D1A}}
@@ -133,3 +133,5 @@
 .account-role{font-size:10px;letter-spacing:.3px;border:1px solid #D8DCD5;border-radius:20px;padding:2px 7px;color:#596052}.account-role.verified{background:#EEF4E7;color:#48622B;border-color:#DAE6CC}
 .identifying-account{align-items:center;font-size:12px;color:#596052}
 @media(max-width:640px){.linked-account{padding:16px;gap:10px;flex-wrap:wrap}.linked-account-info{flex-basis:calc(100% - 46px)}.linked-account .outline{margin-left:46px;white-space:normal}.linked-account .account-address{font-size:11px}}
+
+.next-step .scan-spinner{width:18px;height:18px;border-width:2px}
