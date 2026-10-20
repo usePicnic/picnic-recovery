@@ -196,7 +196,7 @@ export function App() {
     disableSiweRedirect: true, embedGoogleFonts: false,
   }}><div className="shell">
     <header>
-      <a className="brand" href="./"><span className="brand-mark">p.</span><span>picnic<span className="brand-sub">recovery</span></span></a>
+      <a className="brand" href="./"><img className="brand-logo" src="./brand/picnic-wordmark.svg" alt="picnic" width="90" height="29" /><span className="brand-sub">recovery</span></a>
       <div className="header-actions"><Chip>{t("Direto na blockchain", "Directly on-chain")}</Chip>
         <button className="quiet" onClick={() => setLang(lang === "pt" ? "en" : "pt")} aria-label="Change language">{lang === "pt" ? "EN" : "PT"}</button>
       </div>
