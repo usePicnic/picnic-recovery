@@ -1,2 +1,55 @@
-# picnic-recovery
-Independent on-chain recovery and exits for Picnic wallets. No Picnic backend required.
+# Picnic Recovery
+
+Independent, open-source access to Picnic Safe and legacy EOA accounts and on-chain asset exits. Run it locally or host the static build yourself. No Picnic login, API, Magic session, Deframe API, bundler, paymaster or hosted recovery service is used.
+
+**Implementation preview.** Recovery and card flows have local contract integration tests; selected investment exits have nonzero-balance fork tests. The historical catalogue is broader than the tested deployment coverage. See [coverage and verification](docs/coverage.md) before using a route. This repository does not guarantee recovery of every account.
+
+## Run from source
+
+Node 22.12+; no environment variables or credentials:
+
+```sh
+npm ci --ignore-scripts
+npm run build
+node scripts/serve.mjs
+```
+
+Open `http://127.0.0.1:4173`. The build contains its own scripts, styles, ABI fragments and catalogues. Keep a copy of the repository and a built archive: package registries, GitHub and the hosted page are not required to run an already-built copy. The archive still requires a local HTTP server; `scripts/serve.mjs` uses only Node built-ins.
+
+## Use
+
+1. Select a chain, enter the account address and optionally choose your own HTTPS RPC (HTTP is allowed on loopback).
+2. Connect an external wallet you control. If it is already an owner, use asset exits directly. If it is a configured guardian, approve a new owner, start recovery, wait the contract's actual delay, then finalize.
+3. Review destination, amount, underlying contract and decoded call. Safe transactions use a nonce-bound EIP-712 signature, then a wallet transaction. The connected wallet pays native gas.
+4. For a card Safe, first recover its configured controller (normally the Picnic Safe). Inspect the card's Delay module, queue a transfer, wait its cooldown, then execute the queue head. Expired queue entries can be skipped explicitly.
+5. Exit investments one layer at a time. Some requests need a later settlement/claim. Transferable receipts and tokenized stocks can be moved as-is without selling them.
+6. Export public progress before changing browsers. Pending transaction hashes remain pending after a timeout; inspect receipts before repeating an action. Importing progress never imports a signing key or changes on-chain ownership.
+
+Never enter a seed, private key, OTP or Picnic password into this app. Import a recovered signing key privately into a wallet you trust. Without an existing owner/guardian key or another configured on-chain recovery authority, an address and its balance alone cannot authorize a withdrawal. Keep an independent owner or guardian provisioned **before** Picnic becomes unavailable.
+
+## Dependencies and limits
+
+- An Ethereum-compatible browser wallet, a working RPC and native gas are required. The RPC observes public account queries. Its URL is not persisted or exported.
+- Recovery recognizes the deployed Candide `0.0.1` runtime (including immutable delay variants). Safe `1.3.0`/`1.4.1` singleton runtime hashes are pinned to Safe's public deployment registry. Unknown deployments fail closed.
+- Guards, token restrictions, protocol pauses, liquidity shortages and issuer restrictions still apply. A transferable investment token is not the same as redemption into its underlying asset.
+- No mandatory swaps, fiat payouts, bridge services, price API, analytics, remote fonts or CDN-loaded JavaScript. Existing off-chain unsettled orders are outside the on-chain balance the app can move.
+- Multisig owners register approvals of the same Safe transaction hash on-chain. Every owner must reproduce the same chain, Safe, nonce and call. No Safe Transaction Service is required.
+- Progress is public metadata, stored in this browser. It is not a backup of keys, a guaranteed complete asset inventory, or proof of ownership.
+
+## Develop and verify
+
+Install [Foundry/Anvil](https://getfoundry.sh/) for contract integration tests.
+
+```sh
+npm run check
+npm test
+npm run test:fork   # public RPC read access; all writes stay inside Anvil
+npm run build
+npm run release:archive  # requires a clean, committed source tree
+```
+
+For browser development, run `node scripts/demo-chain.mjs`, then `npm run dev` and open `http://127.0.0.1:5173/?demo=1`. The script prints fictitious Safe/token addresses and the loopback RPC. Demo signing uses only that Anvil instance and is removed from production builds. Do not import Anvil's public test keys into a real wallet.
+
+[Architecture](docs/architecture.md) · [Coverage](docs/coverage.md) · [Third-party notices](NOTICE.md)
+
+MIT for original application code. Test bytecode retains its upstream licenses. This project implements the independent-tool workstream in [Picnic #10622](https://github.com/usePicnic/picnic/issues/10622).
