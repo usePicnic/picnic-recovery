@@ -4,6 +4,7 @@ import { chains, chainById } from "./catalog/chains";
 import { products } from "./catalog/products";
 import { address, assertChain, parseAmount, publicClient, same } from "./core/client";
 import { inspectAccount } from "./core/inspect";
+import { assertSeparateRecipient } from "./core/destination";
 import { recoveryAction, safeAction, sendAction, transferCall, approveSafeProposal, safeReceiptSucceeded } from "./core/actions";
 import { verifyTokenReceipt, type ReceiptExpectation } from "./core/receipts";
 import { erc20Abi } from "./core/abi";
@@ -141,6 +142,7 @@ export function App() {
       ? old.accounts : [...old.accounts, { chainId: result.chainId, address: result.account, label: `Account ${short(result.account)}` }].slice(-100) }));
   }
   function openReview(action: PreparedAction) {
+    if (action.receive) assertSeparateRecipient(action.receive.recipient, walletAddress);
     if (uncertain) throw new Error(t("Confira a transação pendente antes de preparar outra.", "Check the pending transaction before preparing another."));
     setReview(action); setReviewed(false);
   }
@@ -160,6 +162,7 @@ export function App() {
   }
   async function execute(approveOnly = false) {
     if (!review || !reviewed || uncertain) return;
+    if (review.receive) assertSeparateRecipient(review.receive.recipient, walletAddress);
     const receipt = approveOnly ? await approveSafeProposal(requireClient(), await provider(), review, submitted)
       : await sendAction(requireClient(), await provider(), review, submitted);
     setProgress(old => ({ ...old, transactions: old.transactions.map(tx => tx.hash === receipt.transactionHash ? { ...tx, status: "confirmed" } : tx) }));
@@ -169,6 +172,7 @@ export function App() {
     diagnosis.rescan(chainId);
   }
   async function prepareTransfer(card = false) {
+    assertSeparateRecipient(destination, walletAddress);
     const safe = requireSnapshot();
     const selectedId = transferId(chainId, token);
     if (!card && excluded(selectedId)) throw new Error(t("Este ativo foi desmarcado em Preparar carteiras. Selecione-o lá para movê-lo.", "This asset was unticked in Prepare wallets. Select it there to move it."));
@@ -333,6 +337,7 @@ export function App() {
             {chainId === 56 && <StockTokens select={setToken} busy={busy} lang={lang} />}
             <div className="grid two"><Field label={t("Token ERC-20 (vazio = moeda nativa)", "ERC-20 token (empty = native coin)")}><input disabled={busy} value={token} onChange={e => setToken(e.target.value)} placeholder={`0x… / ${chain.nativeCurrency.symbol}`} /></Field>
               <Field label={t("Quantidade", "Amount")}><input disabled={busy} value={amount} inputMode="decimal" onChange={e => setAmount(e.target.value)} placeholder="0.00" /></Field></div>
+            <p className="small muted">{t("Use uma carteira de destino diferente da carteira conectada.", "Use a destination wallet different from the connected wallet.")}</p>
             <Field label={t("Endereço de destino", "Destination address")}><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" /></Field>
             <p className="small muted">{t("O envio acontece nesta rede, sem conversão. Para começar, escolha uma pequena quantidade.", "The transfer stays on this network, with no conversion. Start with a small amount.")}</p>
             <button disabled={busy || !snapshot || (tab === "card" && !cardDelay)} onClick={() => run(() => prepareTransfer(tab === "card"))}>{tab === "card" ? t("Revisar retirada com espera", "Review delayed withdrawal") : t("Revisar transferência", "Review transfer")}</button>
@@ -352,6 +357,7 @@ export function App() {
               {p.pending !== undefined && <p>{t("Cotas aguardando", "Pending shares")}: {formatUnits(p.pending, p.decimals)} · {t("Disponíveis para claim", "Claimable")}: {formatUnits(p.claimable ?? 0n, p.decimals)}</p>}
               <div className="row"><button className="outline" disabled={busy || p.balance === 0n} onClick={() => run(async () => {
                 const safe = requireSnapshot();
+                if (destination) assertSeparateRecipient(destination, walletAddress);
                 openReview(await redeemPosition(requireClient(), safe, p.product, amount ? parseAmount(amount, p.decimals) : p.available !== undefined && p.available < p.balance ? p.available : p.balance, destination || safe.address));
               })}>{p.product.kind === "receipt" ? t("Transferir posição", "Transfer position") : t("Revisar resgate", "Review redemption")}</button>
                 {!["staking", "receipt"].includes(p.product.kind) && <button className="text-button" disabled={busy || !destination || !p.balance} onClick={() => run(async () => {

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatUnits, type Address } from "viem";
 import { chains, chainById } from "../catalog/chains";
-import { address, assertChain, publicClient, same } from "../core/client";
+import { assertChain, publicClient } from "../core/client";
+import { destinationError } from "../core/destination";
 import type { NetworkDiagnosis } from "../core/diagnosis";
 import { rpcFor, type CustomTokenState, type RpcOverrides } from "./useDiagnosis";
 import { ChainLogo } from "./ChainLogo";
@@ -26,14 +27,8 @@ async function readGas(chainId: number, rpc: string, wallet: Address) {
   return { balance: await client.getBalance({ address: wallet, blockNumber: block }), block };
 }
 
-export function destinationError(destination: string, account: string) {
-  if (!destination.trim()) return "missing" as const;
-  try { return same(address(destination), account) ? "source" as const : undefined; } catch { return "invalid" as const; }
-}
-
 export function PrepareMigration({ lang, busy, account, wallet, results, items, selection, select, overrides, destination, setDestination, rescan, addCustom, retryCustom, run, next, connect }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
-  const destinationInput = useRef<HTMLInputElement>(null);
   const [gas, setGas] = useState<GasState>({});
   const gasRef = useRef(gas);
   gasRef.current = gas;
@@ -70,7 +65,7 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
   const emptyIncomplete = incomplete.filter(r => !groups.some(g => g.chain.id === r.chainId));
   const scanning = results.filter(r => r.status === "queued" || r.status === "scanning");
   const blocked = selectedChains.map(id => ({ id, state: status(id) })).filter(entry => entry.state !== "ready");
-  const destinationProblem = destinationError(destination, account);
+  const destinationProblem = destinationError(destination, account, wallet);
   const canContinue = chosen.length > 0 && blocked.length === 0 && !destinationProblem && !busy;
 
   const labels: Record<Readiness, string> = {
@@ -151,9 +146,9 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
     </div>}
     <CustomTokenForm lang={lang} busy={busy || !results.length} add={addCustom} />
 
-    <label className="field"><span>{t("Destino dos ativos (todas as redes)", "Asset destination (all networks)")}</span><input ref={destinationInput} disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" aria-invalid={!!destination && !!destinationProblem} aria-describedby={destination && destinationProblem ? "destination-error" : undefined} /></label>
-    {destination && destinationProblem && <p id="destination-error" className="small table-error" role="alert">{destinationProblem === "source" ? t("Este endereço é a própria conta de origem. Para migrar os ativos, informe o endereço de outra carteira.", "This address is the source account itself. To move the assets, enter another wallet's address.") : t("Informe um endereço válido (0x…).", "Enter a valid address (0x…).")}</p>}
-    {wallet && <button type="button" className="text-button" disabled={busy} onClick={() => { setDestination(wallet); destinationInput.current?.focus(); }}>{t("Usar minha carteira conectada como destino", "Use my connected wallet as destination")}</button>}
+    <label className="field"><span>{t("Destino dos ativos (todas as redes)", "Asset destination (all networks)")}</span><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" aria-invalid={!!destination && !!destinationProblem} aria-describedby={destination && destinationProblem ? "destination-error" : undefined} /></label>
+    {destination && destinationProblem && <p id="destination-error" className="small table-error" role="alert">{destinationProblem === "connected" ? t("Use outra carteira como destino. A carteira conectada é usada para assinar as operações.", "Use another wallet as the destination. The connected wallet signs the operations.") : destinationProblem === "source" ? t("Este endereço é a própria conta de origem. Para migrar os ativos, informe o endereço de outra carteira.", "This address is the source account itself. To move the assets, enter another wallet's address.") : t("Informe um endereço válido (0x…).", "Enter a valid address (0x…).")}</p>}
+    <p className="small muted">{t("Informe uma carteira de destino diferente da carteira conectada. Você precisa controlar essa outra carteira.", "Enter a destination wallet different from the connected wallet. You must control that other wallet.")}</p>
     <p className="small muted">{t("O mesmo endereço precisa conseguir receber em cada rede selecionada. Você confere o destino e o efeito em cada operação antes de assinar; nada é enviado automaticamente.", "The same address must be able to receive on each selected network. You review the destination and effect of every operation before signing; nothing is sent automatically.")}</p>
     <p className="note">{t("Um saldo positivo para taxas não garante todas as retiradas: cada operação é simulada e estimada de novo antes do envio, e a carteira mostra a taxa. Em uma conta antiga sem Safe, a própria conta paga as taxas: deixe uma reserva de gás ao retirar a moeda nativa. Se a conta exigir mais de uma assinatura, os outros owners também precisam aprovar.", "A positive fee balance does not guarantee every withdrawal: each operation is simulated and estimated again before sending, and your wallet shows the fee. For a legacy account without a Safe, the account itself pays fees: leave a gas reserve when withdrawing native coins. If the account requires more than one signature, the other owners must also approve.")}</p>
 

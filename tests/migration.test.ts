@@ -11,7 +11,8 @@ import {
   readiness, selectedIds, setSelected, transferId, type Selection,
 } from "../src/components/migration";
 import { AssetTable } from "../src/components/AssetTable";
-import { PrepareMigration, destinationError } from "../src/components/PrepareMigration";
+import { PrepareMigration } from "../src/components/PrepareMigration";
+import { destinationError, assertSeparateRecipient } from "../src/core/destination";
 
 vi.mock("../src/components/ChainLogo", () => ({ ChainLogo: () => null }));
 const account = "0x1111111111111111111111111111111111111111" as Address;
@@ -167,6 +168,11 @@ describe("fee checks and readiness", () => {
     expect(destinationError("0x123", account)).toBe("invalid");
     expect(destinationError(getAddress(account), account)).toBe("source");
     expect(destinationError(other, account)).toBeUndefined();
+    expect(destinationError(other, account, other)).toBe("connected");
+    expect(destinationError(` ${getAddress(usdc)} `, account, usdc)).toBe("connected");
+    expect(destinationError(other, account, usdc)).toBeUndefined();
+    expect(() => assertSeparateRecipient(` ${getAddress(usdc)} `, usdc)).toThrow(/connected signing wallet/);
+    expect(() => assertSeparateRecipient(other, usdc)).not.toThrow();
   });
 });
 
@@ -181,6 +187,8 @@ describe("Prepare wallets view", () => {
     const items = migrationItems(results, []);
     const selection = setSelected(emptySelection(account), items, ["137:native", "137:baskets"], false);
     const html = renderToStaticMarkup(createElement(PrepareMigration, props(results, selection)));
+    expect(html).not.toContain("Use my connected wallet as destination");
+    expect(html).toContain("destination wallet different from the connected wallet");
     expect(html).toContain("Gnosis");
     expect(html).toContain("Polygon");
     expect(html).toContain("4</strong> of 6 assets selected");
