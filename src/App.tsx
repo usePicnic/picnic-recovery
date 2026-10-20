@@ -13,17 +13,17 @@ import { inspectPosition, redeemPosition, claimCovered, settleCovered, claimStad
 import { useAccount } from "wagmi";
 import { ConnectKitProvider } from "connectkit";
 import { PrepareMigration } from "./components/PrepareMigration";
-import { basketsId, chainOf, commitSelection, emptySelection, forAccount, isExcluded, mamoId, migrationItems, positionId, selectedIds, setSelected, transferId, type Selection } from "./components/migration";
+import { chainOf, commitSelection, emptySelection, forAccount, isExcluded, migrationItems, positionId, selectedIds, setSelected, transferId, type Selection, type MigrationItem } from "./components/migration";
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
 import { RecoveryPanel } from "./components/RecoveryPanel";
-import { AssetTable } from "./components/AssetTable";
+import { CardAssetForm } from "./components/CardAssetForm";
+import { AssetTable, ItemText } from "./components/AssetTable";
 import { useDiagnosis, rpcFor, type RpcOverrides } from "./components/useDiagnosis";
 import { type NetworkDiagnosis, type TokenHolding } from "./core/diagnosis";
-import { StockTokens } from "./components/StockTokens";
 import { LegacyPanel } from "./components/LegacyPanel";
 import { CallDetails } from "./components/CallDetails";
 import { ChainLogo } from "./components/ChainLogo";
-import { discoverMamo, withdrawMamo, type MamoPosition } from "./core/mamo";
+import { discoverMamo, inspectMamo, withdrawMamo, type MamoPosition } from "./core/mamo";
 import { readProgress, saveProgress, downloadProgress, parseProgress } from "./core/progress";
 import type { AccountSnapshot, PreparedAction } from "./core/types";
 
@@ -62,6 +62,8 @@ export function App() {
   // Entering Move funds freezes the defaults: assets found later are not included implicitly.
   useEffect(() => { if (step === 3) setSelectionState(old => commitSelection(forAccount(old, account), items)); }, [step, account]);
   const [tab, setTab] = useState("transfer");
+  const [activeItem, setActiveItem] = useState<MigrationItem>();
+  const assetRequest = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -105,6 +107,7 @@ export function App() {
     return selected as EIP1193Provider;
   }
   function goToStep(next: 0 | 1 | 2 | 3) {
+    setActiveItem(undefined);
     setStep(next > 0 && !snapshot ? 0 : next === 1 && snapshot?.passkey !== "detected" ? 0 : next); setReview(undefined); setReviewed(false);
   }
   useEffect(() => { setReview(undefined); setReviewed(false); }, [walletAddress, connection.connector?.uid, connection.chainId]);
@@ -120,6 +123,7 @@ export function App() {
     } finally { setBusy(false); }
   }
   function resetInspection() {
+    assetRequest.current++; setActiveItem(undefined);
     setSnapshot(undefined); setReview(undefined); setPositions([]); setCoveredRequests([]); setScanProgress(""); setMamoPositions([]); setPositionFailures([]);
     setCardDelay(undefined); setQueue([]); setReviewed(false); setStep(0);
   }
@@ -189,30 +193,32 @@ export function App() {
         receive: { token: coin, recipient: address(destination), minimum: value } });
     }
   }
-  async function scanPositions() {
-    const safe = requireSnapshot();
-    const found: Position[] = [], failed: string[] = [];
-    const results = await Promise.allSettled(products.filter(p => p.chainId === chainId).map(p => inspectPosition(requireClient(), safe.address, p)));
-    const selected = products.filter(p => p.chainId === chainId);
-    results.forEach((r, i) => {
-      if (r.status === "fulfilled") found.push(r.value);
-      else failed.push(`${selected[i].name}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
-    });
-    if (chainId === 8453) {
-      try {
-        const strategies = await discoverMamo(requireClient(), safe.address);
-        setMamoPositions(strategies.flatMap(r => r.status === "fulfilled" ? [r.value] : []));
-        strategies.forEach(r => { if (r.status === "rejected") failed.push(`MAMO: ${String(r.reason)}`); });
-      } catch (e) { failed.push(`MAMO registry: ${String(e)}`); }
-    }
-    setPositions(found); setPositionFailures(failed);
-  }
-  const nav = [
-    ["transfer", t("Saldo e tokens", "Balance and tokens")], ["card", t("Cartão", "Card")],
-    ["invest", t("Investimentos", "Investments")], ["legacy", t("Cestas antigas", "Legacy baskets")],
-  ];
   const explorer = chain.blockExplorers?.default.url;
-  const visiblePositions = positions.filter(p => !excluded(positionId(chainId, p.product.id)));
+  const visiblePositions = positions.filter(p => activeItem?.id === positionId(chainId, p.product.id) && !excluded(activeItem.id));
+  function openAsset(item: MigrationItem, result: NetworkDiagnosis) {
+    if (!chosen.has(item.id)) return;
+    openDiagnosis(result, 3, item.tab, item.holding); setActiveItem(item);
+    if (item.strategy) setMamoPositions([item.strategy]);
+    if (item.card) { setCardAddress(item.card.card); setCardDelay(item.card); }
+    const request = assetRequest.current;
+    if (item.card || item.tab === "invest") void run(async () => {
+      const reader = publicClient(chainById(result.chainId), rpcFor(result.chainId, rpcOverrides));
+      if (item.card) {
+        const delays = await inspectCard(reader, item.card.card, result.chainId);
+        const delay = delays.find(d => same(d.address, item.card!.address) && d.controllers.some(c => same(c, result.account)));
+        if (!delay) throw new Error("Card controller changed; inspect the card again");
+        const calls = await readQueue(reader, delay);
+        if (request === assetRequest.current) { setCardDelay(delay); setQueue(calls); }
+      } else if (item.strategy) {
+        const position = await inspectMamo(reader, result.account, item.strategy.address);
+        if (request === assetRequest.current) setMamoPositions([position]);
+      } else {
+        const product = products.find(p => positionId(p.chainId, p.id) === item.id);
+        if (product) { const position = await inspectPosition(reader, result.account, product); if (request === assetRequest.current) setPositions([position]); }
+        else if (item.kind === "mamo") { const found = await discoverMamo(reader, result.account); if (request === assetRequest.current) { setMamoPositions(found.flatMap(r => r.status === "fulfilled" ? [r.value] : [])); setPositionFailures(found.flatMap(r => r.status === "rejected" ? [String(r.reason)] : [])); } }
+      }
+    });
+  }
   return <ConnectKitProvider theme="minimal" mode="light" options={{
     language: lang === "pt" ? "pt-BR" : "en-US", hideBalance: true,
     hideNoWalletCTA: true, hideRecentBadge: true, enforceSupportedChains: false,
@@ -300,52 +306,40 @@ export function App() {
               const result = diagnosis.results.find(r => r.chainId === target);
               if (result) openDiagnosis(result, 3, items.find(item => chosen.has(item.id) && item.chainId === target)?.tab);
             }} />}
+          {(step === 0 || step === 2) && <CardAssetForm key={account} lang={lang} disabled={busy || !diagnosis.account} add={diagnosis.addCard} />}
           {step === 3 && <section className="panel compact">
             <p className="eyebrow">{t("PASSO 2 / MOVER O DINHEIRO", "STEP 2 / MOVE FUNDS")}</p>
             <h2>{t("Retire os ativos, no seu ritmo.", "Withdraw assets at your pace.")}</h2>
             <p>{t("Escolha de onde retirar. Alguns investimentos e o cartão têm uma espera antes de concluir. Revise cada operação e mantenha gás para as próximas etapas.", "Choose where to withdraw from. Some investments and the card require a waiting period. Review each operation and keep gas for the next steps.")}</p>
-            <div className="move-networks" role="group" aria-label={t("Redes selecionadas", "Selected networks")}>
-              {chains.filter(c => chosenChains.includes(c.id)).map(c => <button key={c.id} type="button" disabled={busy} aria-pressed={c.id === chainId} className={c.id === chainId ? "is-current" : ""} onClick={() => {
-                const result = diagnosis.results.find(r => r.chainId === c.id);
-                if (result) openDiagnosis(result, 3, items.find(item => chosen.has(item.id) && item.chainId === c.id)?.tab);
-              }}><ChainLogo id={c.id} size={20} />{c.name}<span className="tab-count">{[...chosen].filter(id => chainOf(id) === c.id).length}</span></button>)}
-              <button type="button" className="text-button" disabled={busy} onClick={() => goToStep(2)}>{t("Editar seleção", "Edit selection")}</button>
-            </div>
-            {!chosenChains.includes(chainId) && chosen.size > 0 && !rescanning(chainId) && <p className="note">{t(`Nenhum ativo de ${chain.name} está selecionado. Escolha uma das redes acima.`, `No ${chain.name} asset is selected. Choose one of the networks above.`)}</p>}
+            <button type="button" className="text-button" disabled={busy} onClick={() => { setActiveItem(undefined); goToStep(2); }}>{t("Editar seleção", "Edit selection")}</button>
             <AssetTable lang={lang} busy={busy} ready={diagnosis.results.length > 0} results={diagnosis.results} custom={diagnosis.customTokens} selected={chosen}
-              open={openDiagnosis} addCustom={diagnosis.addCustomToken} removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} />
-            <nav className="asset-tabs" aria-label={t("Origem dos ativos", "Asset source")}>{nav.map(([id, label]) => <button key={id} disabled={busy} aria-current={tab === id ? "page" : undefined} className={tab === id ? "nav-active" : ""} onClick={() => { setTab(id); setReview(undefined); }}>{label}</button>)}</nav>
+              open={openDiagnosis} openItem={openAsset} addCustom={diagnosis.addCustomToken} removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} />
           </section>}
-          {step === 3 && (tab === "transfer" || tab === "card") && <section className="panel">
+          {step === 3 && activeItem && <section className="panel compact active-asset"><div className="network-cell"><ChainLogo id={activeItem.chainId} /><ItemText item={activeItem} lang={lang} /></div><button className="text-button" disabled={busy} onClick={() => { setActiveItem(undefined); setReview(undefined); setReviewed(false); }}>{t("Fechar detalhes", "Close details")}</button></section>}
+          {step === 3 && activeItem && (tab === "transfer" || tab === "card") && <section className="panel">
             <p className="eyebrow">{tab === "card" ? t("CARTÃO", "CARD") : t("SALDO E TOKENS", "BALANCE AND TOKENS")}</p><h2>{tab === "card" ? t("Retire o saldo do cartão.", "Withdraw card funds.") : t("Escolha o destino dos seus ativos.", "Choose where your assets go.")}</h2>
-            {tab === "card" && <><Field label={t("Safe do cartão (Gnosis)", "Card Safe (Gnosis)")}><input disabled={busy} value={cardAddress} onChange={e => { setCardAddress(e.target.value); setCardDelay(undefined); setQueue([]); }} placeholder="0x…" /></Field>
-              <button className="outline" disabled={busy || chainId !== 100} onClick={() => run(async () => {
-                const delays = await inspectCard(requireClient(), address(cardAddress), chainId);
-                if (delays.length !== 1) throw new Error("Expected one verified card delay module");
-                setCardDelay(delays[0]); setQueue(await readQueue(requireClient(), delays[0]));
-              })}>{t("Consultar cartão e fila", "Inspect card and queue")}</button>
+            {tab === "card" && <>
               {cardDelay && <><p className="small">{t("Módulo de espera", "Delay module")}: <span className="mono">{cardDelay.address}</span></p>
                 <p>{t("Controladores", "Controllers")}: {cardDelay.controllers.map(short).join(", ")} · {t("Espera", "Cooldown")}: {cardDelay.cooldown.toString()}s</p>
-                <button className="text-button" disabled={busy || !queue.length} onClick={() => run(async () => openReview(await skipExpiredCard(requireClient(), cardDelay, chainId)))}>{t("Revisar descarte dos pedidos expirados", "Review skipping expired requests")}</button>
+                {activeItem.pending && <><button className="text-button" disabled={busy || !queue.length} onClick={() => run(async () => openReview(await skipExpiredCard(requireClient(), cardDelay, chainId)))}>{t("Revisar descarte dos pedidos expirados", "Review skipping expired requests")}</button>
                 {queue.map(q => <div className="queue-row" key={q.nonce.toString()}>
                   <strong>#{q.nonce.toString()} · {queueStatus(q.createdAt, cardDelay.cooldown, cardDelay.expiration, snapshot?.timestamp ?? 0n)}</strong>
                   <p className="mono small">{q.to}</p><details><summary>{t("Ver chamada", "View call")}</summary><code>{q.data}</code><p>{q.value.toString()} wei</p></details>
                   <button className="outline" disabled={busy || q.nonce !== cardDelay.head} onClick={() => run(async () => openReview(await dispatchCard(requireClient(), cardDelay, q, chainId)))}>{t("Revisar execução", "Review execution")}</button>
-                </div>)}
+                </div>)}</>}
               </>}
             </>}
-            {chainId === 56 && <StockTokens select={setToken} busy={busy} lang={lang} />}
-            <div className="grid two"><Field label={t("Token ERC-20 (vazio = moeda nativa)", "ERC-20 token (empty = native coin)")}><input disabled={busy} value={token} onChange={e => setToken(e.target.value)} placeholder={`0x… / ${chain.nativeCurrency.symbol}`} /></Field>
+            {!(tab === "card" && activeItem.pending) && <><div className="grid two"><Field label={t("Token ERC-20 (vazio = moeda nativa)", "ERC-20 token (empty = native coin)")}><input disabled={busy} value={token} readOnly placeholder={`0x… / ${chain.nativeCurrency.symbol}`} /></Field>
               <Field label={t("Quantidade", "Amount")}><input disabled={busy} value={amount} inputMode="decimal" onChange={e => setAmount(e.target.value)} placeholder="0.00" /></Field></div>
             <p className="small muted">{t("Use uma carteira de destino diferente da carteira conectada.", "Use a destination wallet different from the connected wallet.")}</p>
             <Field label={t("Endereço de destino", "Destination address")}><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" /></Field>
             <p className="small muted">{t("O envio acontece nesta rede, sem conversão. Para começar, escolha uma pequena quantidade.", "The transfer stays on this network, with no conversion. Start with a small amount.")}</p>
-            <button disabled={busy || !snapshot || (tab === "card" && !cardDelay)} onClick={() => run(() => prepareTransfer(tab === "card"))}>{tab === "card" ? t("Revisar retirada com espera", "Review delayed withdrawal") : t("Revisar transferência", "Review transfer")}</button>
+            <button disabled={busy || !snapshot || (tab === "card" && !cardDelay)} onClick={() => run(() => prepareTransfer(tab === "card"))}>{tab === "card" ? t("Revisar retirada com espera", "Review delayed withdrawal") : t("Revisar transferência", "Review transfer")}</button></>}
           </section>}
-          {step === 3 && tab === "invest" && <section className="panel">
+          {step === 3 && activeItem && tab === "invest" && <section className="panel">
             <p className="eyebrow">{t("POSIÇÕES E RESGATES", "POSITIONS & REDEMPTIONS")}</p><h2>{t("Saia pelo contrato do investimento.", "Exit through the investment contract.")}</h2>
-            <p>{t("Consulte as posições desta Safe. Resgates em etapas continuam aqui quando a espera terminar.", "Inspect this Safe's positions. Multi-step redemptions can be resumed here after the waiting period.")}</p>
-            <button className="outline" disabled={busy || !snapshot} onClick={() => run(scanPositions)}>{t("Consultar posições", "Inspect positions")}</button>
+            <p>{t("Confira esta posição. Resgates em etapas continuam aqui quando a espera terminar.", "Review this position. Multi-step redemptions can be resumed here after the waiting period.")}</p>
+            <button className="outline" disabled={busy || !snapshot} onClick={() => { const result = diagnosis.results.find(r => r.chainId === chainId); if (result) openAsset(activeItem, result); }}>{t("Atualizar saldo", "Refresh balance")}</button>
             <div className="grid two"><Field label={t("Quantidade de cotas para resgatar", "Shares to redeem")}><input disabled={busy} value={amount} onChange={e => setAmount(e.target.value)} placeholder={t("Vazio = disponível", "Empty = available")} inputMode="decimal" /></Field>
               <Field label={t("Destino (vazio = esta Safe)", "Destination (empty = this Safe)")}><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" /></Field></div>
             {positions.length > visiblePositions.length && <p className="small muted">{t("Posições desmarcadas em Preparar carteiras ficam ocultas.", "Positions unticked in Prepare wallets are hidden.")}</p>}
@@ -391,15 +385,15 @@ export function App() {
                 <button className="outline" disabled={busy} onClick={() => run(async () => openReview(await claimStader(requireClient(), requireSnapshot(), p.product, i)))}>{t("Revisar claim", "Review claim")}</button>
               </div>)}
             </article>)}
-            {!excluded(mamoId(chainId)) && mamoPositions.map(p => <article className="position" key={p.address}>
+            {!excluded(activeItem.id) && mamoPositions.filter(p => !activeItem.strategy || same(p.address, activeItem.strategy.address)).map(p => <article className="position" key={p.address}>
               <h3>MAMO strategy · {formatUnits(p.balance, p.decimals)}</h3><p className="mono small">{p.address}</p>
               <div className="row"><button disabled={busy || !p.balance} onClick={() => run(async () => openReview(await withdrawMamo(requireClient(), requireSnapshot(), p.address)))}>{t("Retirar MAMO", "Withdraw MAMO")}</button>
                 <button className="outline" disabled={busy} onClick={() => run(async () => openReview(await withdrawMamo(requireClient(), requireSnapshot(), p.address, true)))}>{t("Receber recompensas", "Claim rewards")}</button></div>
             </article>)}
             {positionFailures.length > 0 && <details className="message warning"><summary>{t("Consulta parcial — posições não verificadas", "Partial scan — unverified positions")} ({positionFailures.length})</summary>{positionFailures.map(f => <p key={f} className="small">{f}</p>)}</details>}
           </section>}
-          {step === 3 && tab === "legacy" && excluded(basketsId(chainId)) && <section className="panel compact"><p className="note">{t("As cestas antigas desta rede não estão selecionadas. Selecione-as em Preparar carteiras para movê-las.", "Legacy baskets on this network are not selected. Select them in Prepare wallets to move them.")}</p></section>}
-          {step === 3 && tab === "legacy" && !excluded(basketsId(chainId)) && <LegacyPanel key={`${chainId}:${snapshot?.address ?? ""}:${rpc}`} client={client} snapshot={snapshot} busy={busy} lang={lang} run={run} review={openReview} invalidate={() => setReview(undefined)} />}
+          {step === 3 && activeItem && tab === "legacy" && excluded(activeItem.id) && <section className="panel compact"><p className="note">{t("As cestas antigas desta rede não estão selecionadas. Selecione-as em Preparar carteiras para movê-las.", "Legacy baskets on this network are not selected. Select them in Prepare wallets to move them.")}</p></section>}
+          {step === 3 && activeItem && tab === "legacy" && !excluded(activeItem.id) && <LegacyPanel initialNft={activeItem.basketId} key={`${activeItem.id}:${snapshot?.address ?? ""}:${rpc}`} client={client} snapshot={snapshot} busy={busy} lang={lang} run={run} review={openReview} invalidate={() => setReview(undefined)} />}
           {review && <section className="panel review" aria-label={t("Revisão da transação", "Transaction review")}>
             <p className="eyebrow">{t("ANTES DE ASSINAR", "BEFORE YOU SIGN")}</p><h2>{review.label}</h2>
             <dl><dt>{t("Rede", "Network")}</dt><dd>{chain.name} ({review.chainId})</dd><dt>{t("Conta", "Account")}</dt><dd className="mono">{review.account}</dd>

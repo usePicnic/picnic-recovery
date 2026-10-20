@@ -4,6 +4,7 @@ import { chains, chainById, defaultReadRpcs } from "../catalog/chains";
 import { address, same } from "../core/client";
 import { CustomTokenFailure, diagnoseNetwork, emptyDiagnosis, inspectCustomToken, type CustomToken, type CustomTokenError, type NetworkDiagnosis } from "../core/diagnosis";
 import { ReadPool } from "../core/reads";
+import { inspectCard } from "../core/card";
 import { products } from "../catalog/products";
 export type RpcOverrides = Record<number, string>;
 // The RPC used for transactions: an explicit override, otherwise the default.
@@ -51,6 +52,33 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
       }
     })();
   }, [account, overrides]);
+  const cardAddresses = useRef<Address[]>([]);
+  const cardOwner = useRef(account);
+  const cardControllers = useRef(new Map<string, AbortController>());
+  const [cardResults, setCardResults] = useState<Record<string, { owner: Address; result: NetworkDiagnosis }>>({});
+  const launchCard = useCallback((card: Address) => {
+    if (!account) return;
+    const id = card.toLowerCase();
+    cardControllers.current.get(id)?.abort();
+    const controller = new AbortController(); cardControllers.current.set(id, controller);
+    setCardResults(old => ({ ...old, [id]: { owner: account, result: emptyDiagnosis(100, card) } }));
+    void diagnoseNetwork({ chain: chainById(100), account: card, sources: sources(100, overrides), signal: controller.signal,
+      update: result => { if (!controller.signal.aborted && context.current.account === account && context.current.overrides === overrides)
+        setCardResults(old => ({ ...old, [id]: { owner: account, result } })); } });
+  }, [account, overrides]);
+  const addCard = useCallback(async (raw: string) => {
+    const card = address(raw);
+    if (!account) throw new Error("Inspect the controlling account first");
+    if (same(card, account)) throw new Error("Enter the card Safe address, not the controlling account");
+    if (cardAddresses.current.some(a => same(a, card))) throw new Error("This card is already in the list");
+    const controller = new AbortController();
+    const pool = new ReadPool(chainById(100), sources(100, overrides), controller.signal);
+    const delays = await pool.run(client => inspectCard(client, card, 100));
+    if (context.current.account !== account || context.current.overrides !== overrides) throw new Error("Account or RPC changed; try again");
+    if (delays.filter(d => d.controllers.some(c => same(c, account))).length !== 1) throw new Error("This account is not the verified controller of one card Delay module");
+    cardAddresses.current = [...cardAddresses.current, card];
+    launchCard(card);
+  }, [account, overrides, launchCard]);
   const launch = useCallback((id?: number) => {
     if (!account) return;
     for (const chain of chains.filter(c => id === undefined || c.id === id)) {
@@ -60,18 +88,31 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
       void diagnoseNetwork({ chain, account, sources: sources(chain.id, overrides), signal: controller.signal,
         update: result => setResults(old => ({ ...old, [chain.id]: result })) });
     }
+    if (id === undefined || id === 100) for (const card of cardAddresses.current) launchCard(card);
     for (const item of customListRef.current.filter(c => id === undefined || c.chainId === id)) verifyCustom(item.chainId, item.address);
-  }, [account, overrides, verifyCustom]);
+  }, [account, overrides, verifyCustom, launchCard]);
   useEffect(() => {
     const active = controllers.current, customActive = customControllers.current;
     active.forEach(c => c.abort()); active.clear();
     customActive.forEach(c => c.abort()); customActive.clear();
+    cardControllers.current.forEach(c => c.abort());
+    if (cardOwner.current !== account) { cardAddresses.current = []; cardOwner.current = account; }
+    setCardResults({});
     setCustom({});
     setResults(account ? Object.fromEntries(chains.map(c => [c.id, emptyDiagnosis(c.id, account)])) : {});
     const timer = setTimeout(() => launch(), 500);
-    return () => { clearTimeout(timer); active.forEach(c => c.abort()); active.clear(); customActive.forEach(c => c.abort()); customActive.clear(); };
+    return () => { cardControllers.current.forEach(c => c.abort()); clearTimeout(timer); active.forEach(c => c.abort()); active.clear(); customActive.forEach(c => c.abort()); customActive.clear(); };
   }, [account, launch]);
-  const current = Object.values(results).filter(r => account && r.account.toLowerCase() === account.toLowerCase());
+  const current = Object.values(results).filter(r => account && r.account.toLowerCase() === account.toLowerCase()).map(result => {
+    if (result.chainId !== 100) return result;
+    const linkedCards = Object.values(cardResults).filter(c => same(c.owner, result.account)).map(c => c.result);
+    const checking = linkedCards.some(c => c.status === "queued" || c.status === "scanning");
+    const cardIssues = linkedCards.flatMap(c => c.status === "queued" || c.status === "scanning" ? []
+      : !c.cards.some(d => d.controllers.some(controller => same(controller, result.account))) ? [`Card ${c.account}: controller link could not be verified`]
+      : c.status === "partial" || c.status === "unavailable" ? [`Card ${c.account}: balances could not be fully verified`] : []);
+    return { ...result, linkedCards, status: checking ? "scanning" as const : cardIssues.length && result.status === "complete" ? "partial" as const : result.status,
+      issues: [...result.issues, ...cardIssues] };
+  });
   const rescan = useCallback((id?: number) => { launch(id); }, [launch]);
   // "duplicate": already added; "catalogue": already checked by the automatic scan.
   const addCustomToken = useCallback(async (chainId: number, raw: string): Promise<CustomTokenError | "duplicate" | "catalogue" | "cancelled" | undefined> => {
@@ -94,5 +135,5 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
   }, []);
   const customTokens = customList.map(c => custom[key(c.chainId, c.address)] ?? { ...c, status: "loading" as const })
     .filter(c => !c.token || (account && same(c.token.account, account)));
-  return { account, results: current, rescan, customTokens, addCustomToken, removeCustomToken, retryCustomToken: verifyCustom };
+  return { account, addCard, results: current, rescan, customTokens, addCustomToken, removeCustomToken, retryCustomToken: verifyCustom };
 }

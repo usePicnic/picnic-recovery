@@ -1,3 +1,5 @@
+import type { CardDelay } from "../core/card";
+import type { MamoPosition } from "../core/mamo";
 import type { Address } from "viem";
 import { chains, chainById } from "../catalog/chains";
 import { products } from "../catalog/products";
@@ -9,25 +11,26 @@ import type { CustomTokenState } from "./useDiagnosis";
 // move-funds table, so what is shown and what is selected always agree.
 // IDs are stable across rescans and RPC changes:
 //   <chain>:native · <chain>:token:<lowercase address> · <chain>:position:<product id>
-//   <chain>:baskets · <chain>:mamo
+//   <chain>:baskets:<NFT> · <chain>:mamo:<strategy> · 100:card:<Safe>:<asset>
 // A product share token is always its position ID, even if only the plain token
 // balance was readable. A custom token shares the token namespace, so it can
 // never duplicate a catalogue token.
-export type AssetTab = "transfer" | "invest" | "legacy";
-export type AssetBadge = "native" | "investment" | "request" | "legacy" | "custom";
-export type AssetKind = "native" | "position" | "token" | "baskets" | "mamo" | "custom";
+export type AssetTab = "transfer" | "invest" | "legacy" | "card";
+export type AssetBadge = "native" | "investment" | "request" | "legacy" | "custom" | "card";
+export type AssetKind = "native" | "position" | "token" | "baskets" | "mamo" | "custom" | "card";
 export type MigrationItem = {
   id: string; kind: AssetKind; chainId: number; symbol: string; name: string; badge?: AssetBadge; tab: AssetTab; order: number;
   amount?: { value: bigint; decimals?: number }; count?: string; pending?: boolean;
-  holding?: TokenHolding; custom?: CustomTokenState;
-  // Only verified, nonzero holdings can be selected for migration.
+  holding?: TokenHolding; custom?: CustomTokenState; card?: CardDelay; basketId?: bigint; strategy?: MamoPosition;
+  // Verified holdings and pending requests can be selected for migration.
   selectable: boolean;
 };
 
 export const nativeId = (chainId: number) => `${chainId}:native`;
 export const positionId = (chainId: number, product: string) => `${chainId}:position:${product}`;
-export const basketsId = (chainId: number) => `${chainId}:baskets`;
-export const mamoId = (chainId: number) => `${chainId}:mamo`;
+export const basketsId = (chainId: number, nft?: bigint) => `${chainId}:baskets${nft === undefined ? "" : `:${nft}`}`;
+export const mamoId = (chainId: number, strategy?: string) => `${chainId}:mamo${strategy ? `:${strategy.toLowerCase()}` : ""}`;
+export const cardId = (card: string, asset: string) => `100:card:${card.toLowerCase()}:${asset.toLowerCase()}`;
 export function tokenId(chainId: number, token: string) {
   const product = products.find(p => p.chainId === chainId && same(p.address, token));
   return product ? positionId(chainId, product.id) : `${chainId}:token:${token.toLowerCase()}`;
@@ -57,10 +60,23 @@ export function migrationItems(results: readonly NetworkDiagnosis[], custom: rea
       add({ id, kind: product ? "position" : "token", chainId: chain.id, symbol: token.symbol ?? token.name, name: token.name, badge: product ? "investment" : undefined, tab: product ? "invest" : "transfer",
         amount: { value: token.balance, decimals: token.verifiedDecimals }, holding: product ? undefined : token, order: order(chain.id) + 2, selectable: !!result.snapshot });
     }
-    if ((result.basketCount ?? 0n) > 0n) add({ id: basketsId(chain.id), kind: "baskets", chainId: chain.id, symbol: "", name: "", badge: "legacy", tab: "legacy",
-      count: result.basketCount!.toString(), order: order(chain.id) + 3, selectable: !!result.snapshot });
-    if ((result.strategyCount ?? 0) > 0) add({ id: mamoId(chain.id), kind: "mamo", chainId: chain.id, symbol: "MAMO", name: "", badge: "investment", tab: "invest",
+    for (const nft of result.basketIds ?? []) add({ id: basketsId(chain.id, nft), kind: "baskets", chainId: chain.id, symbol: `#${nft}`, name: "Picnic", badge: "legacy", tab: "legacy", basketId: nft,
+      count: "1 NFT", order: order(chain.id) + 3, selectable: !!result.snapshot });
+    const remaining = (result.basketCount ?? 0n) - BigInt(result.basketIds?.length ?? 0);
+    if (remaining > 0n) add({ id: basketsId(chain.id), kind: "baskets", chainId: chain.id, symbol: "", name: "", badge: "legacy", tab: "legacy",
+      count: remaining.toString(), order: order(chain.id) + 3, selectable: !!result.snapshot });
+    for (const strategy of result.strategies ?? []) add({ id: mamoId(chain.id, strategy.address), kind: "mamo", chainId: chain.id, symbol: "MAMO", name: `${strategy.address.slice(0, 6)}…${strategy.address.slice(-4)}`, badge: "investment", tab: "invest", strategy,
+      amount: { value: strategy.balance, decimals: strategy.decimals }, order: order(chain.id) + 3, selectable: !!result.snapshot });
+    if (!result.strategies && (result.strategyCount ?? 0) > 0) add({ id: mamoId(chain.id), kind: "mamo", chainId: chain.id, symbol: "MAMO", name: "", badge: "investment", tab: "invest",
       count: String(result.strategyCount), order: order(chain.id) + 3, selectable: !!result.snapshot });
+    for (const card of result.linkedCards ?? []) {
+      const delay = card.cards.find(d => d.controllers.some(controller => same(controller, result.account)));
+      if (!delay) continue;
+      const base = { kind: "card" as const, chainId: chain.id, badge: "card" as const, tab: "card" as const, card: delay, order: order(chain.id) + 4, selectable: !!result.snapshot };
+      if ((card.nativeBalance ?? 0n) > 0n) add({ ...base, id: cardId(card.account, "native"), symbol: chain.nativeCurrency.symbol, name: chain.nativeCurrency.name, amount: { value: card.nativeBalance!, decimals: chain.nativeCurrency.decimals } });
+      for (const token of card.tokens) add({ ...base, id: cardId(card.account, token.address), symbol: token.symbol ?? token.name, name: token.name, holding: token, amount: { value: token.balance, decimals: token.verifiedDecimals } });
+      if (delay.tail > delay.head) add({ ...base, id: cardId(card.account, "queue"), symbol: "", name: "", pending: true });
+    }
   }
   for (const item of custom) {
     const result = results.find(r => r.chainId === item.chainId);

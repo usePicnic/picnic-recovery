@@ -5,11 +5,11 @@ import { discoverBaskets, inspectBasket, withdrawBasketNative, withdrawBasketTok
 import { legacyCatalogue, resolveLegacyAsset, legacyBalance, exitLegacyBasket, underlyingAssets, withdrawTetu, type LegacyAsset, type LegacyCatalogue } from "../core/legacy-routes";
 import type { AccountSnapshot, PreparedAction } from "../core/types";
 
-type Props = { client?: PublicClient; snapshot?: AccountSnapshot; busy: boolean; lang: "pt" | "en";
+type Props = { initialNft?: bigint; client?: PublicClient; snapshot?: AccountSnapshot; busy: boolean; lang: "pt" | "en";
   run: (task: () => Promise<void>) => Promise<void>; review: (action: PreparedAction) => void; invalidate: () => void };
-export function LegacyPanel({ client, snapshot, busy, lang, run, review, invalidate }: Props) {
+export function LegacyPanel({ initialNft, client, snapshot, busy, lang, run, review, invalidate }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
-  const [nft, setNft] = useState("");
+  const [nft, setNft] = useState(initialNft?.toString() ?? "");
   const [wallet, setWallet] = useState("");
   const [catalogue, setCatalogue] = useState<LegacyCatalogue>();
   const [query, setQuery] = useState("");
@@ -28,7 +28,7 @@ export function LegacyPanel({ client, snapshot, busy, lang, run, review, invalid
   return <section className="panel" onChange={invalidate}>
     <p className="eyebrow">{t("LEGADO", "LEGACY")}</p><h2>{t("Retire de uma cesta antiga.", "Withdraw from a legacy basket.")}</h2>
     <p>{t("A Safe deve ser proprietária do NFT. Retire uma camada de investimento por vez, sem converter os ativos.", "The Safe must own the NFT. Exit one investment layer at a time without converting assets.")}</p>
-    <details><summary>{t("Encontrar NFTs desta Safe", "Find this Safe's NFTs")}</summary>
+    {initialNft === undefined && <details><summary>{t("Encontrar NFTs desta Safe", "Find this Safe's NFTs")}</summary>
       <label className="field"><span>{t("ID inicial", "Starting ID")}</span><input disabled={busy} value={start.toString()} inputMode="numeric" onChange={e => { if (/^\d*$/.test(e.target.value)) setStart(BigInt(e.target.value || "0")); }} /></label>
       <button className="outline" disabled={busy || !snapshot} onClick={() => run(async () => {
         const c = context(); const result = await discoverBaskets(c.client, c.snapshot.address, start);
@@ -36,8 +36,8 @@ export function LegacyPanel({ client, snapshot, busy, lang, run, review, invalid
         setDiscovery(`${result.next} / ${result.total} · ${t("IDs sem resposta (inclui NFTs queimados)", "IDs without a response (includes burned NFTs)")}: ${result.failed.join(", ") || "0"}`);
       })}>{t("Consultar próximos 200 IDs", "Inspect next 200 IDs")}</button>
       <p className="small">{discovery}</p>{found.map(id => <button key={id.toString()} className="text-button" disabled={busy} onClick={() => { setNft(id.toString()); setWallet(""); }}>{`NFT #${id}`}</button>)}
-    </details>
-    <label className="field"><span>NFT ID</span><input disabled={busy} value={nft} onChange={e => { setNft(e.target.value); setWallet(""); setBalance(undefined); }} inputMode="numeric" /></label>
+    </details>}
+    <label className="field"><span>NFT ID</span><input disabled={busy} readOnly={initialNft !== undefined} value={nft} onChange={e => { setNft(e.target.value); setWallet(""); setBalance(undefined); }} inputMode="numeric" /></label>
     <button className="outline" disabled={busy || !snapshot || !nft} onClick={() => run(async () => {
       const c = context(); const basket = await inspectBasket(c.client, BigInt(nft), c.snapshot.address);
       setWallet(basket.wallet); setCatalogue(await legacyCatalogue()); setBalance(undefined);

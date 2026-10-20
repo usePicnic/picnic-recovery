@@ -120,3 +120,5 @@
 .blockers{margin:6px 0 0;padding-left:18px}.diagnosis-continue>div p{margin:0}
 .move-networks{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:18px 0 4px}.move-networks button:not(.text-button){display:inline-flex;align-items:center;gap:8px;background:#FFFFFF;color:#211D1A;border:1px solid #D8DCD5;border-radius:99px;padding:7px 12px;font-size:12px;font-weight:500}.move-networks button:not(.text-button):hover:not(:disabled){background:#F5F7F3}.move-networks button.is-current{border-color:#211D1A;background:#F0FDB9;font-weight:600}.move-networks .text-button{margin-left:6px}
 @media(max-width:640px){.prepare-wallet{flex-direction:column;align-items:flex-start}.migration-network-head{flex-direction:column;align-items:flex-start;padding:12px 14px}.migration-assets li{padding:0 14px}.migration-assets label{flex-wrap:wrap}.migration-balance{width:100%;padding-left:32px;text-align:left}.migration-fee{padding:10px 14px}}
+
+.active-asset{display:flex;align-items:center;justify-content:space-between;gap:16px}.active-asset .token-text{font-size:15px}.active-asset .network-cell{min-width:0}

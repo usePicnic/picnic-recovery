@@ -12,7 +12,7 @@ type Open = (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: To
 export type AddResult = Promise<"invalid-address" | "duplicate" | "catalogue" | "cancelled" | "not-contract" | "no-balance" | "rpc" | undefined>;
 type Props = {
   lang: Lang; busy: boolean; ready: boolean; results: NetworkDiagnosis[]; custom: CustomTokenState[]; open: Open;
-  showActions?: boolean;
+  showActions?: boolean; openItem?: (item: MigrationItem, result: NetworkDiagnosis) => void;
   // Move funds: only the assets selected in Prepare wallets.
   selected?: ReadonlySet<string>;
   addCustom: (chainId: number, token: string) => AddResult; removeCustom: (chainId: number, token: Address) => void; retryCustom: (chainId: number, token: Address) => void;
@@ -42,10 +42,10 @@ const customErrors = (lang: Lang) => {
 // Shared by the asset tables and the preparation checklist.
 export function ItemText({ item, lang, extra }: { item: MigrationItem; lang: Lang; extra?: ReactNode }) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
-  const symbol = item.kind === "baskets" ? t("Cestas", "Baskets") : item.symbol;
-  const name = item.kind === "baskets" ? t("Cestas antigas da Picnic", "Legacy Picnic baskets") : item.kind === "mamo" ? t("Estratégias MAMO", "MAMO strategies") : item.name;
+  const symbol = item.kind === "baskets" ? item.basketId !== undefined ? `${t("Cesta", "Basket")} #${item.basketId}` : t("Cestas a identificar", "Baskets to identify") : item.kind === "card" && item.pending ? t("Retirada do cartão", "Card withdrawal") : item.symbol;
+  const name = item.kind === "baskets" ? t("Cestas antigas da Picnic", "Legacy Picnic baskets") : item.kind === "mamo" ? item.strategy ? item.name : t("Estratégias MAMO", "MAMO strategies") : item.name;
   const badge = { native: t("Moeda nativa", "Native coin"), investment: t("Investimento", "Investment"), request: t("Pedido em andamento", "Request in progress"),
-    legacy: t("Legado", "Legacy"), custom: t("Adicionado por você", "Added by you") }[item.badge ?? "native"];
+    card: t("Cartão", "Card"), legacy: t("Cesta", "Basket"), custom: t("Adicionado por você", "Added by you") }[item.badge ?? "native"];
   return <span className="token-text"><strong>{symbol}</strong><small>{name !== symbol ? name : ""}{item.badge && <em className="token-badge">{badge}</em>}{extra}</small></span>;
 }
 export function ItemBalance({ item, lang }: { item: MigrationItem; lang: Lang }) {
@@ -53,27 +53,26 @@ export function ItemBalance({ item, lang }: { item: MigrationItem; lang: Lang })
   if (item.custom?.status === "loading") return <span className="muted" role="status">{t("Verificando…", "Checking…")}</span>;
   if (item.custom?.status === "error") return <span className="table-error">{customErrors(lang)[item.custom.error ?? "rpc"]}</span>;
   if (item.pending) return <span className="muted">{t("Ver pedido", "See request")}</span>;
+  if (item.kind === "baskets" && item.basketId === undefined) return <>{item.count} {t("cestas", "baskets")}</>;
   if (item.amount) return <Amount value={item.amount.value} decimals={item.amount.decimals} lang={lang} />;
   return <>{item.count ?? ""}</>;
 }
 const PAGE = 40;
 
-export function AssetTable({ lang, busy, ready, results, custom, open, addCustom, removeCustom, retryCustom, selected, showActions = true }: Props) {
+export function AssetTable({ lang, busy, ready, results, custom, open, addCustom, removeCustom, retryCustom, selected, showActions = true, openItem }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [all, setAll] = useState(false);
   const rows = migrationItems(results, custom).filter(item => !selected || selected.has(item.id));
   const action = (item: MigrationItem) => {
     const result = results.find(r => r.chainId === item.chainId), canOpen = !!result?.snapshot && !busy;
-    const go = (tab: string, holding?: TokenHolding) => { if (result) open(result, 3, tab, holding); };
+    const go = (tab: string, holding?: TokenHolding) => { if (result) { if (openItem) openItem(item, result); else open(result, 3, tab, holding); } };
     if (item.custom) return <span className="table-actions">
       {item.selectable && <button className="table-action" disabled={!canOpen} onClick={() => go("transfer", item.holding)}>{t("Retirar", "Withdraw")}</button>}
       {item.custom.status === "ready" && item.amount?.value === 0n && <span className="muted small">{t("Sem saldo nesta conta", "No balance in this account")}</span>}
       {item.custom.status === "error" && <button className="text-button" disabled={busy} onClick={() => retryCustom(item.chainId, item.custom!.address)}>{t("Tentar de novo", "Retry")}</button>}
       {!selected && <button className="text-button" disabled={busy} onClick={() => removeCustom(item.chainId, item.custom!.address)} aria-label={`${t("Remover", "Remove")} ${item.custom.address}`}>{t("Remover", "Remove")}</button>}
     </span>;
-    if (item.tab === "legacy") return <button className="table-action secondary" disabled={!canOpen} onClick={() => go("legacy")}>{t("Ver cestas", "View baskets")}</button>;
-    if (item.tab === "invest") return <button className="table-action secondary" disabled={!canOpen} onClick={() => go("invest")}>{t("Ver investimento", "View investment")}</button>;
-    return <button className="table-action" disabled={!canOpen} onClick={() => go("transfer", item.holding)}>{t("Retirar", "Withdraw")}</button>;
+    return <button className="table-action" disabled={!canOpen} onClick={() => go(item.tab, item.holding)}>{item.pending ? t("Ver pedido", "View request") : item.kind === "baskets" && item.basketId === undefined ? t("Identificar", "Identify") : t("Retirar", "Withdraw")}</button>;
   };
   const visible = all ? rows : rows.slice(0, PAGE);
   const scanning = results.some(r => r.status === "queued" || r.status === "scanning");
@@ -81,9 +80,9 @@ export function AssetTable({ lang, busy, ready, results, custom, open, addCustom
     <div className="section-title"><h3 id="assets-title">{selected ? t("Ativos selecionados", "Selected assets") : t("Ativos encontrados", "Assets found")}</h3>{rows.length > 0 && <span className="chip">{rows.length} {t(rows.length === 1 ? "item" : "itens", rows.length === 1 ? "item" : "items")}</span>}</div>
     {rows.length > 0 ? <div className="table-wrap"><table className="asset-table">
       <caption className="sr-only">{t("Ativos por token e rede", "Assets by token and network")}</caption>
-      <thead><tr><th scope="col">Token</th><th scope="col">{t("Rede", "Network")}</th><th scope="col" className="numeric">{t("Saldo", "Balance")}</th>{showActions && <th scope="col"><span className="sr-only">{t("Ação", "Action")}</span></th>}</tr></thead>
+      <thead><tr><th scope="col">{t("Ativo", "Asset")}</th><th scope="col">{t("Rede", "Network")}</th><th scope="col" className="numeric">{t("Saldo", "Balance")}</th>{showActions && <th scope="col"><span className="sr-only">{t("Ação", "Action")}</span></th>}</tr></thead>
       <tbody>{visible.map(row => <tr key={row.id}>
-        <th scope="row" data-label="Token"><ItemText item={row} lang={lang} /></th>
+        <th scope="row" data-label={t("Ativo", "Asset")}><ItemText item={row} lang={lang} /></th>
         <td data-label={t("Rede", "Network")}><span className="network-cell"><ChainLogo id={row.chainId} />{chainById(row.chainId).name}</span></td>
         <td data-label={t("Saldo", "Balance")} className="numeric"><ItemBalance item={row} lang={lang} /></td>
         {showActions && <td className="action-cell">{action(row)}</td>}

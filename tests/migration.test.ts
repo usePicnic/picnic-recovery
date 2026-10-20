@@ -208,3 +208,40 @@ describe("Prepare wallets view", () => {
     expect(none).toContain("Select at least one asset to continue.");
   });
 });
+
+
+describe("one asset list across custody locations", () => {
+  const card = "0x4444444444444444444444444444444444444444" as Address;
+  const delay = { address: other, card, controllers: [account], head: 0n, tail: 1n, cooldown: 60n, expiration: 0n };
+  it("keeps wallet and card token balances separate and routes the card row through its verified Delay", () => {
+    const result = gnosis({ linkedCards: [{ ...gnosis({ account: card, nativeBalance: 0n, positions: [], cards: [delay] }), snapshot: { ...snap(100), address: card } }] });
+    const items = migrationItems([result], []);
+    const walletToken = items.find(i => i.id === `100:token:${usdc}`)!;
+    const cardToken = items.find(i => i.id === `100:card:${card}:${usdc}`)!;
+    expect(walletToken.tab).toBe("transfer");
+    expect(cardToken.tab).toBe("card");
+    expect(cardToken.card).toEqual(delay);
+    expect(cardToken.holding?.address).toBe(usdc);
+    expect(items.find(i => i.id === `100:card:${card}:queue`)?.pending).toBe(true);
+    const selection = setSelected(emptySelection(account), items, [cardToken.id], false);
+    expect(selectedIds(selection, items).has(walletToken.id)).toBe(true);
+    expect(selectedIds(selection, items).has(cardToken.id)).toBe(false);
+    expect(migrationItems([gnosis({ linkedCards: [{ ...result.linkedCards![0], cards: [{ ...delay, controllers: [other] }] }] })], []).some(i => i.kind === "card")).toBe(false);
+  });
+  it("lists known basket NFTs and MAMO positions individually and leaves unidentified baskets explicit", () => {
+    const strategies = [{ address: other, owner: account, token: custom, staking: usdc, balance: 23n, decimals: 6 }];
+    const items = migrationItems([polygon({ basketCount: 3n, basketIds: [8n, 12n] }), { ...base(), strategies }], []);
+    expect(items.filter(i => i.kind === "baskets").map(i => i.id)).toEqual(["137:baskets:8", "137:baskets:12", "137:baskets"]);
+    expect(items.find(i => i.id === "137:baskets")?.count).toBe("1");
+    expect(items.find(i => i.id === `8453:mamo:${other}`)?.amount).toEqual({ value: 23n, decimals: 6 });
+    expect(items.some(i => i.id === "8453:mamo")).toBe(false);
+  });
+  it("renders tokens, card balances, investments and baskets in the same asset table", () => {
+    const results = [gnosis({ linkedCards: [{ ...gnosis({ account: card, nativeBalance: 0n, positions: [], cards: [delay] }), snapshot: { ...snap(100), address: card } }] }), polygon({ basketIds: [8n, 12n] })];
+    const html = renderToStaticMarkup(createElement(AssetTable, { lang: "en", busy: false, ready: true, results, custom: [], open: () => {}, openItem: () => {},
+      addCustom: async () => undefined, removeCustom: () => {}, retryCustom: () => {} }));
+    expect(html).toContain("Card"); expect(html).toContain("Basket #8"); expect(html).toContain("USDC"); expect(html).toContain("sDAI");
+    expect(html.match(/<table /g)).toHaveLength(1);
+    expect(html).not.toContain("View investment"); expect(html).not.toContain("View baskets");
+  });
+});

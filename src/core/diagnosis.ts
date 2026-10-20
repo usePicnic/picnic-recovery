@@ -4,8 +4,8 @@ import { address, same } from "./client";
 import { erc20Abi } from "./abi";
 import { inspectAccount } from "./inspect";
 import { inspectPosition, type Position } from "./investments";
-import { discoverMamo } from "./mamo";
-import { BASKET } from "./legacy";
+import { discoverMamo, type MamoPosition } from "./mamo";
+import { BASKET, discoverBaskets } from "./legacy";
 import { inspectCard, type CardDelay } from "./card";
 import { aggregateWords, balanceOfData, classify, decimalsData, ReadPool, type WordRead } from "./reads";
 import type { AccountSnapshot } from "./types";
@@ -15,7 +15,7 @@ export type TokenHolding = TokenEntry & { balance: bigint; verifiedDecimals?: nu
 export type NetworkDiagnosis = {
   chainId: number; account: Address; status: "queued" | "scanning" | "complete" | "partial" | "unavailable";
   phase: "account" | "assets" | "done"; snapshot?: AccountSnapshot; nativeBalance?: bigint;
-  tokens: TokenHolding[]; positions: Position[]; basketCount?: bigint; strategyCount?: number; cards: CardDelay[];
+  tokens: TokenHolding[]; positions: Position[]; basketCount?: bigint; strategyCount?: number; strategies?: MamoPosition[]; basketIds?: bigint[]; cards: CardDelay[]; linkedCards?: NetworkDiagnosis[];
   // failedTokens: balance unknown because the RPC did not answer.
   // unreadableTokens: the contract itself reverts or returns no balance at this block.
   checkedTokens: number; totalTokens: number; failedTokens: number; unreadableTokens: TokenEntry[]; issues: string[];
@@ -31,7 +31,7 @@ export function hasPosition(p: Position) {
   return p.balance > 0n || (p.pending ?? 0n) > 0n || (p.claimable ?? 0n) > 0n || (p.pendingDeposit ?? 0n) > 0n || (p.claimableDeposit ?? 0n) > 0n || !!p.requests?.length;
 }
 export function hasAssets(d: NetworkDiagnosis) {
-  return (d.nativeBalance ?? 0n) > 0n || !!d.tokens.length || d.positions.some(hasPosition) || (d.basketCount ?? 0n) > 0n || (d.strategyCount ?? 0) > 0;
+  return (d.nativeBalance ?? 0n) > 0n || !!d.tokens.length || d.positions.some(hasPosition) || (d.basketCount ?? 0n) > 0n || (d.strategyCount ?? 0) > 0 || !!d.linkedCards?.some(card => (card.nativeBalance ?? 0n) > 0n || card.tokens.length > 0 || card.cards.some(delay => delay.tail > delay.head));
 }
 export type NextAction = "unverified" | "unsupported" | "waiting" | "finalize" | "connect" | "fund" | "prepare" | "recover" | "owner-required" | "no-findings";
 export function nextAction(d: NetworkDiagnosis, wallet?: Address, gas?: WalletGas): NextAction {
@@ -84,13 +84,21 @@ export async function diagnoseNetwork(options: {
       catch (e) { active(); issue(`${product.name}: ${message(e)}`); }
     }));
     if (chain.id === 137) {
-      try { emit({ basketCount: await pool.run(client => client.readContract({ address: BASKET, abi: erc20Abi, functionName: "balanceOf", args: [account], blockNumber })) }); }
+      try {
+        const basketCount = await pool.run(client => client.readContract({ address: BASKET, abi: erc20Abi, functionName: "balanceOf", args: [account], blockNumber }));
+        emit({ basketCount });
+        if (basketCount > 0n) {
+          const page = await pool.run(client => discoverBaskets(client, account, 0n));
+          active(); emit({ basketIds: page.owned });
+          if (BigInt(page.owned.length) < basketCount) issue("Some basket IDs remain unidentified; use the remaining baskets row to continue discovery.");
+        }
+      }
       catch (e) { active(); issue(`Legacy baskets: ${message(e)}`); }
     }
     if (chain.id === 8453) {
       try {
         const strategies = await pool.run(client => discoverMamo(client, account)); active();
-        emit({ strategyCount: strategies.filter(r => r.status === "fulfilled").length });
+        emit({ strategyCount: strategies.filter(r => r.status === "fulfilled").length, strategies: strategies.flatMap(r => r.status === "fulfilled" ? [r.value] : []) });
         if (strategies.some(r => r.status === "rejected")) issue("Some MAMO strategies could not be inspected");
       } catch (e) { active(); issue(`MAMO: ${message(e)}`); }
     }
