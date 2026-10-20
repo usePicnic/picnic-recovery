@@ -33,6 +33,7 @@ export function destinationError(destination: string, account: string) {
 
 export function PrepareMigration({ lang, busy, account, wallet, results, items, selection, select, overrides, destination, setDestination, rescan, addCustom, retryCustom, run, next, connect }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
+  const destinationInput = useRef<HTMLInputElement>(null);
   const [gas, setGas] = useState<GasState>({});
   const gasRef = useRef(gas);
   gasRef.current = gas;
@@ -150,9 +151,9 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
     </div>}
     <CustomTokenForm lang={lang} busy={busy || !results.length} add={addCustom} />
 
-    <label className="field"><span>{t("Destino dos ativos (todas as redes)", "Asset destination (all networks)")}</span><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" aria-invalid={!!destination && !!destinationProblem} /></label>
-    {destination && destinationProblem && <p className="small table-error" role="alert">{destinationProblem === "source" ? t("O destino deve ser diferente da conta de origem.", "The destination must differ from the source account.") : t("Informe um endereço válido (0x…).", "Enter a valid address (0x…).")}</p>}
-    {wallet && <button className="text-button" disabled={busy || same(wallet, account)} onClick={() => setDestination(wallet)}>{t("Usar minha carteira conectada como destino", "Use my connected wallet as destination")}</button>}
+    <label className="field"><span>{t("Destino dos ativos (todas as redes)", "Asset destination (all networks)")}</span><input ref={destinationInput} disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" aria-invalid={!!destination && !!destinationProblem} aria-describedby={destination && destinationProblem ? "destination-error" : undefined} /></label>
+    {destination && destinationProblem && <p id="destination-error" className="small table-error" role="alert">{destinationProblem === "source" ? t("Este endereço é a própria conta de origem. Para migrar os ativos, informe o endereço de outra carteira.", "This address is the source account itself. To move the assets, enter another wallet's address.") : t("Informe um endereço válido (0x…).", "Enter a valid address (0x…).")}</p>}
+    {wallet && <button type="button" className="text-button" disabled={busy} onClick={() => { setDestination(wallet); destinationInput.current?.focus(); }}>{t("Usar minha carteira conectada como destino", "Use my connected wallet as destination")}</button>}
     <p className="small muted">{t("O mesmo endereço precisa conseguir receber em cada rede selecionada. Você confere o destino e o efeito em cada operação antes de assinar; nada é enviado automaticamente.", "The same address must be able to receive on each selected network. You review the destination and effect of every operation before signing; nothing is sent automatically.")}</p>
     <p className="note">{t("Um saldo positivo para taxas não garante todas as retiradas: cada operação é simulada e estimada de novo antes do envio, e a carteira mostra a taxa. Em uma conta antiga sem Safe, a própria conta paga as taxas: deixe uma reserva de gás ao retirar a moeda nativa. Se a conta exigir mais de uma assinatura, os outros owners também precisam aprovar.", "A positive fee balance does not guarantee every withdrawal: each operation is simulated and estimated again before sending, and your wallet shows the fee. For a legacy account without a Safe, the account itself pays fees: leave a gas reserve when withdrawing native coins. If the account requires more than one signature, the other owners must also approve.")}</p>
 
