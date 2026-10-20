@@ -4,7 +4,7 @@ import { CustomTokenFailure, diagnoseNetwork, inspectCustomToken, type NetworkDi
 import { discoverMamo } from "../src/core/mamo";
 import * as clients from "../src/core/client";
 import { classify, ReadPool } from "../src/core/reads";
-import { readRpcs, rpcFor } from "../src/components/useDiagnosis";
+import { readRpcs, rpcFor, retainFindings } from "../src/components/useDiagnosis";
 
 const account = "0x1111111111111111111111111111111111111111" as Address;
 const chain = defineChain({
@@ -43,6 +43,34 @@ async function scan(nodes: ReturnType<typeof node>[], catalogue = tokens) {
 }
 
 describe("resilient read path", () => {
+  it("resumes a partial diagnosis without rereading the account or completed token batches", async () => {
+    let failing = true;
+    const client = node({fail: calls => failing && calls[0].target.toLowerCase() === tokens[100].address
+      ? new HttpRequestError({url:"x",status:503}) : undefined});
+    const checkpoint = new Map(); let last: NetworkDiagnosis | undefined;
+    const run = () => diagnoseNetwork({chain,account,catalogue:tokens,checkpoint,waitLimit:0,signal:new AbortController().signal,
+      sources:[{url:"https://rpc.example",client:client as unknown as PublicClient}],update:value=>{last=value;}});
+    await run(); expect(last!.status).toBe("partial"); expect(last!.tokens).toHaveLength(149);
+    const previous=last!, before=client.readContract.mock.calls.length;
+    failing=false; await run();
+    expect(last!.status).toBe("complete"); expect(last!.tokens).toHaveLength(249);
+    expect(client.getBlock).toHaveBeenCalledTimes(1);
+    expect(client.readContract.mock.calls.slice(before).every(([args])=>(args.args![0] as Call[])[0].target.toLowerCase()===tokens[100].address)).toBe(true);
+    const interim=retainFindings(previous,{...last!,phase:"account",status:"scanning",tokens:[],positions:[],snapshot:undefined,nativeBalance:undefined});
+    expect(interim.tokens).toEqual(previous.tokens); expect(interim.snapshot).toEqual(previous.snapshot);
+    expect(retainFindings(previous,last!)).toEqual(last!);
+  });
+  it("isolates saved reads by account, network and RPC configuration", async () => {
+    const checkpoint = new Map(), client=node();
+    const first=new ReadPool(chain,[{url:"https://rpc.example",client:client as unknown as PublicClient}],new AbortController().signal,0,undefined,checkpoint,account);
+    const read=vi.fn(async()=>1);
+    await first.run(read,"balance"); await first.run(read,"balance"); expect(read).toHaveBeenCalledTimes(1);
+    const changed=new ReadPool(chain,[{url:"https://rpc.example",client:client as unknown as PublicClient}],new AbortController().signal,0,undefined,checkpoint,tokens[0].address);
+    await changed.run(read,"balance"); expect(read).toHaveBeenCalledTimes(2);
+    const changedRpc=new ReadPool(chain,[{url:"https://other.example",client:client as unknown as PublicClient}],new AbortController().signal,0,undefined,checkpoint,account);
+    await changedRpc.run(read,"balance"); expect(read).toHaveBeenCalledTimes(3);
+  });
+
   it("retries a failed strategy without querying its registry or successful strategies again", async () => {
     const registry = vi.fn(async () => [tokens[0].address, tokens[1].address]);
     const client = node();

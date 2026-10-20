@@ -22,7 +22,7 @@ export const predictPicnicAccount = (owner: Address) => predict(owner, false);
 export const predictCardAccount = (controller: Address) => predict(controller, true);
 export async function discoverPicnicAccount(pool: ReadPool, owner: Address) {
   const candidate = predictPicnicAccount(owner);
-  const code = await pool.run(client => client.getCode({ address: candidate }));
+  const code = await pool.run(client => client.getCode({ address: candidate }), `code:${candidate.toLowerCase()}`);
   if (!code || code === "0x") return;
   const snapshot = await pool.run(client => inspectAccount(client, candidate, 100));
   assertSupportedSafe(snapshot);
@@ -37,9 +37,10 @@ export async function discoverCards(pool: ReadPool, controller: Address) {
   const predicted = predictCardAccount(controller);
   const candidates = new Set<Address>([predicted]);
   const issues: string[] = [];
+  const notes: string[] = [];
   for (const args of [{ from: controller }, { to: controller }, { from: predicted }]) {
     try {
-      const logs = await pool.run(client => client.getLogs({ event: transferEvent, args, fromBlock: 0n, toBlock: "latest", strict: true }));
+      const logs = await pool.run(client => client.getLogs({ event: transferEvent, args, fromBlock: 0n, toBlock: "latest", strict: true }), `history:${JSON.stringify(args)}`);
       if (logs.length > 2000) issues.push("Card discovery history was truncated; additional cards may be missing");
       for (const log of logs.slice(-2000).reverse()) {
         const candidate = args.to ? log.args.from : log.args.to;
@@ -52,16 +53,16 @@ export async function discoverCards(pool: ReadPool, controller: Address) {
   const bounded = [...candidates].slice(0, 64);
   for (let offset = 0; offset < bounded.length; offset += 4) await Promise.all(bounded.slice(offset, offset + 4).map(async candidate => {
     try {
-      const code = await pool.run(client => client.getCode({ address: candidate }));
+      const code = await pool.run(client => client.getCode({ address: candidate }), `code:${candidate.toLowerCase()}`);
       if (!code || code === "0x") return;
       // Ignore ordinary token/router contracts before the more expensive Safe inspection.
       if (code.length > 1000) return;
-      const singleton = await pool.run(client => client.getStorageAt({ address: candidate, slot: "0x0" }));
+      const singleton = await pool.run(client => client.getStorageAt({ address: candidate, slot: "0x0" }), `singleton:${candidate.toLowerCase()}`);
       if (!singleton || !SAFE_SINGLETONS.some(address => same(address, `0x${singleton.slice(-40)}`))) {
-        if (same(candidate, predicted)) issues.push(`Original card ${candidate} uses an unrecognized singleton; inspect its replacement instead`);
+        if (same(candidate, predicted)) notes.push(`Original card ${candidate} is outside the supported v5 discovery scope`);
         return;
       }
-      const delays = await pool.run(client => inspectCard(client, candidate, 100));
+      const delays = await pool.run(client => inspectCard(client, candidate, 100), `card:${candidate.toLowerCase()}`);
       if (delays.filter(delay => delay.delayVersion === "v5" && delay.controllers.some(owner => same(owner, controller))).length === 1) addresses.push(candidate);
     } catch {
       pool.throwIfAborted();
@@ -69,5 +70,5 @@ export async function discoverCards(pool: ReadPool, controller: Address) {
       else if (!issues.includes("Some card candidates could not be verified")) issues.push("Some card candidates could not be verified");
     }
   }));
-  return { addresses, issues };
+  return { addresses, issues, notes };
 }

@@ -38,16 +38,21 @@ export function sleep(ms: number, signal: AbortSignal) {
 // Hostnames only: paths and query strings of RPC URLs may carry API keys.
 export function rpcHost(url: string) { try { return new URL(url).host; } catch { return "custom RPC"; } }
 
+// Session-scoped successful read units. A full refresh discards this cache;
+// retries reuse it so completed balances and discovery pages are not queried again.
+export type ReadCheckpoint = Map<string, { value: unknown; hosts: string[] }>;
 export const READ_TIMEOUTS = [20_000, 40_000, 60_000] as const;
 type Endpoint = { host: string; clients: PublicClient[]; verified?: Promise<void>; dead?: boolean };
 export class ReadPool {
   private endpoints: Endpoint[];
   private current = 0;
+  private namespace: string;
   private retrying = new Map<symbol, number>();
   readonly used = new Set<string>();
   constructor(private chain: Chain, endpoints: readonly { url: string; client?: PublicClient }[], private signal: AbortSignal,
-    private waitLimit = 8_000, private onRetry?: (timeouts: number[]) => void) {
+    private waitLimit = 8_000, private onRetry?: (timeouts: number[]) => void, private checkpoint?: ReadCheckpoint, scope = "") {
     if (!endpoints.length) throw new Error("No RPC configured");
+    this.namespace = JSON.stringify([chain.id, endpoints.map(e => e.url), scope]);
     this.endpoints = endpoints.map(e => ({ host: rpcHost(e.url), clients: READ_TIMEOUTS.map(timeout => e.client ?? publicClient(chain, e.url, timeout)) }));
   }
   throwIfAborted() { if (this.signal.aborted) throw new DOMException("Cancelled", "AbortError"); }
@@ -55,7 +60,11 @@ export class ReadPool {
   // at most three attempts, with 1x/2x/3x transport timeouts. Snapshot units
   // intentionally repeat together so their account/block data stays coherent.
   // Writes never use this pool. Contract errors are not transient retries.
-  async run<T>(read: (client: PublicClient) => Promise<T>): Promise<T> {
+  async run<T>(read: (client: PublicClient) => Promise<T>, key?: string): Promise<T> {
+    this.throwIfAborted();
+    const cacheKey = key && `${this.namespace}:${key}`;
+    const saved = cacheKey && this.checkpoint?.get(cacheKey);
+    if (saved) { saved.hosts.forEach(host => this.used.add(host)); return saved.value as T; }
     let last: unknown;
     const id = Symbol();
     try {
@@ -80,6 +89,7 @@ export class ReadPool {
           const value = await read(client);
           this.throwIfAborted();
           this.used.add(endpoint.host);
+          if (cacheKey) this.checkpoint?.set(cacheKey, { value, hosts: [endpoint.host] });
           return value;
         } catch (e) {
           this.throwIfAborted();

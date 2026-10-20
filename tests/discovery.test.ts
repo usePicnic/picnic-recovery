@@ -52,10 +52,10 @@ describe("automatic Picnic account and card discovery", () => {
     const found = await discoverCards(pool, owner);
     expect(found.addresses).toEqual([]); expect(found.issues.join()).toMatch(/history could not be verified/);
   });
-  it("discloses an altered original card singleton instead of authorizing it", async () => {
+  it("keeps an unsupported original card informational instead of a retryable failure", async () => {
     const { pool, client } = fixture(); client.getStorageAt.mockResolvedValue(pad(stranger));
     const found = await discoverCards(pool, owner);
-    expect(found.addresses).toEqual([]); expect(found.issues.join()).toContain(predictCardAccount(owner)); expect(inspectCard).not.toHaveBeenCalled();
+    expect(found.addresses).toEqual([]); expect(found.issues).toEqual([]); expect(found.notes.join()).toContain(predictCardAccount(owner)); expect(inspectCard).not.toHaveBeenCalled();
   });
   it("cancels stale account discovery and refuses the wrong network", async () => {
     const abort = new AbortController(); abort.abort(); const cancelled = fixture(abort.signal);

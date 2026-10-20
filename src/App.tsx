@@ -267,9 +267,11 @@ export function App() {
         </aside>
         <div className="content">
           {step <= 1 ? <DiagnosisPanel account={account}
+            picnicAccount={connectedAccount?.status === "ready" && connectedAccount.account && !same(connectedAccount.account, walletAddress ?? "") ? connectedAccount.account : undefined}
+            identifying={connectedAccount?.status === "loading"}
             wallet={walletAddress} lang={lang} busy={busy || connectedAccount?.status === "loading"} results={diagnosis.results} overrides={rpcOverrides}
             setRpc={(id, value) => { resetInspection(); setRpcOverrides(old => ({ ...old, [id]: value })); }}
-            rescan={diagnosis.rescan} open={openDiagnosis} custom={diagnosis.customTokens} addCustom={diagnosis.addCustomToken}
+            rescan={diagnosis.rescan} retryPending={diagnosis.retryPending} open={openDiagnosis} custom={diagnosis.customTokens} addCustom={diagnosis.addCustomToken}
             removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken}
             recovery={step === 1 && snapshot?.passkey === "detected" ? <RecoveryPanel snapshot={snapshot} wallet={walletAddress} lang={lang} busy={busy} owner={owner} setOwner={setOwner}
               networkIds={diagnosis.results.filter(r => r.snapshot?.passkey === "detected").map(r => r.chainId)}
@@ -280,8 +282,6 @@ export function App() {
             <button className="text-button" disabled={busy} onClick={() => goToStep(0)}>{t("Trocar carteira ou voltar ao diagnóstico", "Change wallet or back to diagnosis")}</button>
           </section>}
           {step > 1 && diagnosis.results.some(r => r.status === "scanning" || r.status === "queued") && <p className="small muted" role="status">{t("O diagnóstico das outras redes continua em segundo plano.", "Diagnosis of the other networks continues in the background.")}</p>}
-          {step <= 1 && connectedAccount?.status === "loading" && <p className="small muted" role="status">{t("Identificando sua conta Picnic…", "Finding your Picnic account…")}</p>}
-          {step <= 1 && connectedAccount?.status === "ready" && !same(account, walletAddress ?? "") && <p className="small" role="status">{t("Conta Picnic identificada automaticamente. Sua carteira conectada é a proprietária desta Safe.", "Picnic account found automatically. Your connected wallet owns this Safe.")} <span className="mono">{account}</span></p>}
           {step <= 1 && connectedAccount?.status === "error" && <p className="message warning" role="alert">{t("Não foi possível verificar a conta Picnic vinculada. Confira o RPC da Gnosis em Avançado; os saldos da carteira conectada não incluem necessariamente os da Picnic.", "The linked Picnic account could not be verified. Check the Gnosis RPC under Advanced; the connected wallet's balances may not include your Picnic funds.")}</p>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}

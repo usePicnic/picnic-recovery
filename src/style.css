@@ -122,3 +122,14 @@
 @media(max-width:640px){.prepare-wallet{flex-direction:column;align-items:flex-start}.migration-network-head{flex-direction:column;align-items:flex-start;padding:12px 14px}.migration-assets li{padding:0 14px}.migration-assets label{flex-wrap:wrap}.migration-balance{width:100%;padding-left:32px;text-align:left}.migration-fee{padding:10px 14px}}
 
 .active-asset{display:flex;align-items:center;justify-content:space-between;gap:16px}.active-asset .token-text{font-size:15px}.active-asset .network-cell{min-width:0}
+
+.linked-accounts{border:1px solid #D8DCD5;border-radius:12px;background:#FAFBF8;overflow:hidden;margin:8px 0 22px}
+.linked-account{display:flex;align-items:flex-start;gap:14px;padding:20px 22px}
+.linked-account+.linked-account{border-top:1px solid #E4E7E1}
+.linked-account-info{min-width:0;flex:1}.linked-account-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.linked-account-title strong{font-size:14px}
+.linked-account p{margin:5px 0 0}.linked-account .account-address{font-size:12px;line-height:1.7;overflow-wrap:anywhere}.linked-account .small{font-size:12px;line-height:1.6}
+.account-icon{display:grid;place-items:center;width:36px;height:36px;flex-shrink:0;border:1px solid #E0E5D9;border-radius:10px;background:#FFF;color:#4D5546}
+.signer-account .account-icon{background:#CCFF00;border-color:#BAE900;color:#211D1A}.linked-account .outline{flex-shrink:0;align-self:center;white-space:nowrap}
+.account-role{font-size:10px;letter-spacing:.3px;border:1px solid #D8DCD5;border-radius:20px;padding:2px 7px;color:#596052}.account-role.verified{background:#EEF4E7;color:#48622B;border-color:#DAE6CC}
+.identifying-account{align-items:center;font-size:12px;color:#596052}
+@media(max-width:640px){.linked-account{padding:16px;gap:10px;flex-wrap:wrap}.linked-account-info{flex-basis:calc(100% - 46px)}.linked-account .outline{margin-left:46px;white-space:normal}.linked-account .account-address{font-size:11px}}

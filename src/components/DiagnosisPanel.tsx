@@ -4,20 +4,20 @@ import { chains, chainById } from "../catalog/chains";
 import { hasAssets, type NetworkDiagnosis, type TokenHolding } from "../core/diagnosis";
 import { validateRpc } from "../core/client";
 import { rpcFor, type CustomTokenState, type RpcOverrides } from "./useDiagnosis";
-import { WalletButton } from "./WalletProvider";
+import { LinkedAccounts } from "./LinkedAccounts";
 import { AssetTable } from "./AssetTable";
 import { ChainLogo } from "./ChainLogo";
 import { diagnosisAction, diagnosisNext, needsAttention, withCustomHoldings } from "./diagnosisFlow";
 
 type Props = {
-  account: string; wallet?: Address; lang: "pt" | "en"; busy: boolean;
+  account: string; wallet?: Address; picnicAccount?: Address; identifying?: boolean; lang: "pt" | "en"; busy: boolean;
   results: NetworkDiagnosis[]; recovery?: ReactNode; overrides: RpcOverrides;
-  setRpc: (id: number, value: string) => void; rescan: (id?: number) => void;
+  setRpc: (id: number, value: string) => void; rescan: (id?: number) => void; retryPending: (id: number) => void;
   open: (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: TokenHolding) => void;
   custom: CustomTokenState[]; addCustom: Parameters<typeof AssetTable>[0]["addCustom"];
   removeCustom: (chainId: number, token: Address) => void; retryCustom: (chainId: number, token: Address) => void;
 };
-export function DiagnosisPanel({ account, wallet, lang, busy, results, recovery, overrides, setRpc, rescan, open, custom, addCustom, removeCustom, retryCustom }: Props) {
+export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, lang, busy, results, recovery, overrides, setRpc, rescan, retryPending, open, custom, addCustom, removeCustom, retryCustom }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const finished = results.filter(r => !["queued", "scanning"].includes(r.status)).length;
   const retryTimeout = Math.max(0, ...results.flatMap(r => [r.retryTimeout ?? 0, ...r.linkedCards?.map(c => c.retryTimeout ?? 0) ?? []]));
@@ -35,18 +35,7 @@ export function DiagnosisPanel({ account, wallet, lang, busy, results, recovery,
   return <section className="panel diagnosis">
     <p className="eyebrow">{t("PASSO 0 / DIAGNÓSTICO AUTOMÁTICO", "STEP 0 / AUTOMATIC DIAGNOSIS")}</p>
     <h2>{t("Uma conta. Todas as redes.", "One account. Every network.")}</h2>
-    <div className="connect-card">
-      <div>
-        <strong>{wallet ? t("Carteira conectada", "Wallet connected") : t("Comece conectando sua carteira", "Start by connecting your wallet")}</strong>
-        <p>{wallet ? <span className="mono">{wallet}</span> : t("O endereço é lido da carteira e as 10 redes são consultadas automaticamente. Só leitura: nenhuma assinatura é pedida.", "The address is read from your wallet and all 10 networks are checked automatically. Read-only: no signature is requested.")}</p>
-      </div>
-      <WalletButton busy={busy} lang={lang} primary={!wallet} />
-    </div>
-    {account && <div className="inspected-account">
-      <strong>{t("Conta em consulta", "Account being inspected")}</strong>
-      <p className="mono">{account}</p>
-      <p className="small muted">{t("A conta que guarda seus ativos pode ser diferente da carteira conectada que assina as operações.", "The account holding your assets may differ from the connected wallet that signs operations.")}</p>
-    </div>}
+    <LinkedAccounts account={account} wallet={wallet} picnicAccount={picnicAccount} identifying={identifying} results={results} busy={busy} lang={lang} />
     {results.length > 0 && <div className={`diagnosis-progress ${loading ? "is-loading" : ""}`}>
       <div className="scan-status" role="status" aria-live="polite">
         <span className={loading ? "scan-spinner" : pending.length + customErrors.length > 0 ? "scan-complete has-pending" : "scan-complete"} aria-hidden="true">{loading ? "" : pending.length + customErrors.length > 0 ? "!" : "✓"}</span>
@@ -75,10 +64,11 @@ export function DiagnosisPanel({ account, wallet, lang, busy, results, recovery,
         {otherPending.map(result => <NetworkRow key={result.chainId} result={result} wallet={wallet} lang={lang} />)}
         {incomplete.length > 0 && <li className="network-row">
           <strong>{t("Concluir a verificação de saldos", "Complete balance verification")}</strong>
-          <p className="small">{t("Parte das consultas não pôde ser concluída. Os saldos encontrados continuam na tabela; os demais são desconhecidos, não zero. Você pode repetir a consulta em Avançado.", "Some checks could not be completed. Confirmed balances remain in the table; the others are unknown, not zero. You can retry the scan under Advanced.")}</p>
+          <p className="small">{t("Parte das consultas não pôde ser concluída. Os saldos encontrados continuam na tabela; os demais são desconhecidos, não zero. Tente novamente apenas o que falta, sem apagar os resultados.", "Some checks could not be completed. Confirmed balances remain in the table; the others are unknown, not zero. Retry only what is missing, keeping the results already found.")}</p>
           <div className="pending-networks">{incomplete.map(result => <span className="network-cell small" key={result.chainId}><ChainLogo id={result.chainId} size={20} />{chainById(result.chainId).name}</span>)}</div>
-          <details><summary>{t("Ver o que falta em cada rede", "See what is missing on each network")}</summary>
+          <details open><summary>{t("Ver o que falta em cada rede", "See what is missing on each network")}</summary>
             <ul className="network-list">{incomplete.map(result => <NetworkRow key={result.chainId} result={result} wallet={wallet} lang={lang} />)}</ul>
+            <div className="row">{incomplete.map(result => <button key={result.chainId} className="secondary" disabled={busy || loading} onClick={() => retryPending(result.chainId)}>{t("Tentar concluir", "Retry remaining checks on")} {chainById(result.chainId).name}</button>)}</div>
           </details>
         </li>}
         {customErrors.map(item => <li className="network-row" key={`${item.chainId}:${item.address}`}><strong>{t("Verificar token adicionado", "Check added token")}</strong>
@@ -87,6 +77,9 @@ export function DiagnosisPanel({ account, wallet, lang, busy, results, recovery,
       </ul> : <p className="empty-assets">{!results.length ? t("Conecte uma carteira para verificar as pendências.", "Connect a wallet to check for issues.") : loading ? t("As pendências aparecerão conforme a consulta avançar.", "Items needing attention will appear as the scan progresses.") : t("Nenhuma pendência identificada nas verificações realizadas.", "No issues identified in the completed checks.")}</p>}
     </div>
     {recovery}
+    {results.some(result => result.notes?.length) && <details className="small muted"><summary>{t("Observações sobre contas antigas", "Notes about old accounts")}</summary>
+      {results.flatMap(result => result.notes?.map(note => <p key={`${result.chainId}:${note}`}>{note}</p>) ?? [])}
+    </details>}
     {results.length > 0 && !recovery && <div className="diagnosis-continue">
       <p className="small muted">{loading ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
         : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
@@ -146,7 +139,7 @@ function NetworkRow({ result, wallet, lang }: {
     {result.snapshot?.passkey === "unknown" && <p className="small muted">{t("O tipo de acesso não pôde ser confirmado. Não identificamos um signer de passkey compatível.", "The access type could not be confirmed. No supported passkey signer was identified.")}</p>}
     {result.cards.length > 0 && <p className="note">{t("Este endereço é uma Safe de cartão. Recupere o controlador antes de retirar pelo cartão.", "This address is a card Safe. Recover its controller before withdrawing through the card.")}</p>}
     {waiting && <p className="small">{t("Finalização a partir de", "Earliest finalization")}: {new Date(Number(waiting.pending.executeAfter) * 1000).toLocaleString(lang)}</p>}
-    <details className="pending-details"><summary>{t("Ver detalhes", "View details")}</summary>
+    <details className="pending-details" open={result.status === "partial" || result.status === "unavailable"}><summary>{t("Ver detalhes", "View details")}</summary>
     <p className="small muted network-meta">
       {result.totalTokens > 0 && <span>{result.checkedTokens}/{result.totalTokens} {t("tokens consultados", "tokens checked")}</span>}
       {result.sources.length > 0 && <span>{t("Fonte", "Source")}: {result.sources.join(", ")}</span>}

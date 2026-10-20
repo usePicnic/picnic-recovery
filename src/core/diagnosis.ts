@@ -4,10 +4,10 @@ import { address, same } from "./client";
 import { erc20Abi } from "./abi";
 import { inspectAccount } from "./inspect";
 import { inspectPosition, type Position } from "./investments";
-import { discoverMamo, inspectMamo, type MamoPosition } from "./mamo";
-import { BASKET, discoverBaskets } from "./legacy";
+import { MAMO_REGISTRY, strategyAbi, inspectMamo, type MamoPosition } from "./mamo";
+import { BASKET, discoverOwnedBaskets } from "./legacy";
 import { inspectCard, type CardDelay } from "./card";
-import { aggregateWords, balanceOfData, classify, decimalsData, ReadPool, type WordRead } from "./reads";
+import { aggregateWords, balanceOfData, classify, decimalsData, ReadPool, type ReadCheckpoint } from "./reads";
 import type { AccountSnapshot } from "./types";
 
 export type TokenEntry = { chainId: number; address: string; name: string; symbol?: string; decimals?: number };
@@ -18,7 +18,7 @@ export type NetworkDiagnosis = {
   tokens: TokenHolding[]; positions: Position[]; basketCount?: bigint; strategyCount?: number; strategies?: MamoPosition[]; basketIds?: bigint[]; cards: CardDelay[]; linkedCards?: NetworkDiagnosis[];
   // failedTokens: balance unknown because the RPC did not answer.
   // unreadableTokens: the contract itself reverts or returns no balance at this block.
-  checkedTokens: number; totalTokens: number; failedTokens: number; unreadableTokens: TokenEntry[]; issues: string[];
+  checkedTokens: number; totalTokens: number; failedTokens: number; unreadableTokens: TokenEntry[]; issues: string[]; notes?: string[];
   // Token balances are read at the account snapshot block; if the RPC no longer
   // serves that state (short-history BSC nodes), later chunks use newer blocks.
   tokenBlocks?: { from: bigint; to: bigint }; sources: string[];
@@ -58,11 +58,11 @@ const MIN_SPLIT = 12;
 export async function diagnoseNetwork(options: {
   chain: Chain; account: Address; sources: readonly ReadSource[]; signal: AbortSignal;
   update: (result: NetworkDiagnosis) => void;
-  catalogue?: readonly TokenEntry[]; waitLimit?: number;
+  catalogue?: readonly TokenEntry[]; waitLimit?: number; checkpoint?: ReadCheckpoint;
 }) {
   const { chain, account, signal, update } = options;
   let state = emptyDiagnosis(chain.id, account);
-  const pool = new ReadPool(chain, options.sources, signal, options.waitLimit, timeouts => emit({ retryTimeout: Math.max(0, ...timeouts) }));
+  const pool = new ReadPool(chain, options.sources, signal, options.waitLimit, timeouts => emit({ retryTimeout: Math.max(0, ...timeouts) }), options.checkpoint, account.toLowerCase());
   const emit = (patch: Partial<NetworkDiagnosis>) => { state = { ...state, ...patch, sources: [...pool.used] }; if (!signal.aborted) update(state); };
   const issue = (message: string) => emit({ issues: [...state.issues, message] });
   const active = () => { if (signal.aborted) throw new DOMException("Cancelled", "AbortError"); };
@@ -70,7 +70,7 @@ export async function diagnoseNetwork(options: {
     active(); emit({ status: "scanning" });
     // Do not read balances from a misconfigured RPC or label unknown bytecode empty.
     // The whole account snapshot comes from one endpoint at one block.
-    const snapshot = await pool.run(client => inspectAccount(client, account, chain.id));
+    const snapshot = await pool.run(client => inspectAccount(client, account, chain.id), "account");
     active(); emit({ snapshot, nativeBalance: snapshot.nativeBalance, phase: "assets" });
     const blockNumber = snapshot.block;
     const catalogue = options.catalogue ?? (await import("../catalog/tokens.json")).default;
@@ -80,30 +80,32 @@ export async function diagnoseNetwork(options: {
     // Current products include pending requests even when the share balance is zero.
     await Promise.all(products.filter(p => p.chainId === chain.id).map(async product => {
       active();
-      try { const position = await pool.run(client => inspectPosition(client, account, product)); active(); if (hasPosition(position)) emit({ positions: [...state.positions, position] }); }
+      try { const position = await pool.run(client => inspectPosition(client, account, product), `position:${product.id}`); active(); if (hasPosition(position)) emit({ positions: [...state.positions, position] }); }
       catch (e) { active(); issue(`${product.name}: ${message(e)}`); }
     }));
     if (chain.id === 137) {
       try {
-        const basketCount = await pool.run(client => client.readContract({ address: BASKET, abi: erc20Abi, functionName: "balanceOf", args: [account], blockNumber }));
+        const basketCount = await pool.run(client => client.readContract({ address: BASKET, abi: erc20Abi, functionName: "balanceOf", args: [account], blockNumber }), `basket-count:${blockNumber}`);
         emit({ basketCount });
         if (basketCount > 0n) {
-          const page = await pool.run(client => discoverBaskets(client, account, 0n));
+          const page = await discoverOwnedBaskets(pool, account, basketCount, blockNumber, chain.contracts!.multicall3!.address);
           active(); emit({ basketIds: page.owned });
-          if (BigInt(page.owned.length) < basketCount) issue("Some basket IDs remain unidentified; use the remaining baskets row to continue discovery.");
+          if (!page.complete) issue(page.limited ? "Basket discovery limit reached; some owned baskets remain unidentified."
+            : "Some basket ownership reads could not be completed; retry the pending checks.");
         }
       }
       catch (e) { active(); issue(`Legacy baskets: ${message(e)}`); }
     }
     if (chain.id === 8453) {
       try {
-        const strategies = await pool.run(client => discoverMamo(client, account, strategy => pool.run(reader => inspectMamo(reader, account, strategy)))); active();
+        const addresses = await pool.run(client => client.readContract({ address: MAMO_REGISTRY, abi: strategyAbi, functionName: "getUserStrategies", args: [account] }), "mamo-registry");
+        const strategies = await Promise.allSettled(addresses.map(strategy => pool.run(client => inspectMamo(client, account, strategy), `mamo:${strategy.toLowerCase()}`))); active();
         emit({ strategyCount: strategies.filter(r => r.status === "fulfilled").length, strategies: strategies.flatMap(r => r.status === "fulfilled" ? [r.value] : []) });
         if (strategies.some(r => r.status === "rejected")) issue("Some MAMO strategies could not be inspected");
       } catch (e) { active(); issue(`MAMO: ${message(e)}`); }
     }
     if (chain.id === 100 && snapshot.version !== "EOA") {
-      try { emit({ cards: await pool.run(client => inspectCard(client, account, chain.id)) }); }
+      try { emit({ cards: await pool.run(client => inspectCard(client, account, chain.id), "card") }); }
       catch { /* A normal Safe is not a card. Account inspection remains valid. */ }
     }
     const reader = new TokenReader(pool, chain, account, blockNumber, signal);
@@ -172,9 +174,10 @@ class TokenReader {
     for (;;) {
       try {
         const block = this.block;
-        const words: WordRead[] = await this.pool.run(client => aggregateWords(client, multicall, batch.map(t => ({ target: t.address, data })), block));
-        this.note(block);
-        return words.map(w => w.ok ? { status: "ok", value: w.value } : { status: "contract" });
+        const read = await this.pool.run(async client => ({ words: await aggregateWords(client, multicall, batch.map(t => ({ target: t.address, data })), block), block }),
+          `words:${data}:${batch.map(t => t.address.toLowerCase()).join(",")}`);
+        this.note(read.block);
+        return read.words.map(w => w.ok ? { status: "ok", value: w.value } : { status: "contract" });
       } catch (e) {
         if (this.signal.aborted) throw e;
         if (await this.repin(e)) continue;
@@ -207,11 +210,11 @@ class TokenReader {
     for (;;) {
       try {
         const block = this.block, target = address(token.address.toLowerCase());
-        const value: bigint | number = functionName === "balanceOf"
-          ? await this.pool.run(client => client.readContract({ address: target, abi: erc20Abi, functionName, args: [this.account], blockNumber: block }))
-          : await this.pool.run(client => client.readContract({ address: target, abi: erc20Abi, functionName, blockNumber: block }));
-        this.note(block);
-        return { status: "ok", value: BigInt(value) };
+        const read = await this.pool.run(async client => ({ block, value: functionName === "balanceOf"
+          ? await client.readContract({ address: target, abi: erc20Abi, functionName, args: [this.account], blockNumber: block })
+          : await client.readContract({ address: target, abi: erc20Abi, functionName, blockNumber: block }) }), `${functionName}:${target}`);
+        this.note(read.block);
+        return { status: "ok", value: BigInt(read.value) };
       } catch (e) {
         if (this.signal.aborted) throw e;
         if (await this.repin(e)) continue;

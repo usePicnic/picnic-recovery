@@ -6,6 +6,7 @@ import { DiagnosisPanel } from "../src/components/DiagnosisPanel";
 import { emptyDiagnosis } from "../src/core/diagnosis";
 import type { AccountSnapshot } from "../src/core/types";
 import { diagnosisNext, needsAttention } from "../src/components/diagnosisFlow";
+import { LinkedAccounts } from "../src/components/LinkedAccounts";
 import { RecoveryPanel } from "../src/components/RecoveryPanel";
 
 vi.mock("../src/components/WalletProvider", () => ({ WalletButton: () => null }));
@@ -21,7 +22,7 @@ it("keeps custom-token holdings in diagnosis without checking gas or offering wi
     custom: [{ chainId: 100, address: token, status: "ready", token: {
       chainId: 100, address: token, name: "TEST", symbol: "TEST", balance: 1_000_000n, verifiedDecimals: 6, account, block: 10n, custom: true,
     } }],
-    setRpc: () => {}, rescan: () => {}, open: () => {},
+    setRpc: () => {}, rescan: () => {}, retryPending: () => {}, open: () => {},
     addCustom: async () => undefined, removeCustom: () => {}, retryCustom: () => {},
   }));
   expect(html).not.toContain("Gás da carteira");
@@ -31,7 +32,7 @@ it("keeps custom-token holdings in diagnosis without checking gas or offering wi
   expect(html).not.toContain("token-mark");
   expect(html).not.toContain(">Retirar<");
   expect(html).toContain("Próximo passo");
-  expect(html).toContain("Conta em consulta");
+  expect(html).toContain("Carteira que assina");
   expect(html).not.toContain("Endereço a consultar");
   expect(html).not.toContain("Voltar para a carteira conectada");
 });
@@ -67,4 +68,17 @@ it("only renders the recovery sub-step for a positively identified passkey accou
   expect(renderToStaticMarkup(createElement(RecoveryPanel, { ...props, snapshot }))).toBe("");
   expect(renderToStaticMarkup(createElement(RecoveryPanel, { ...props, snapshot: { ...snapshot, version: "1.4.1", passkey: "unknown" } }))).toBe("");
   expect(renderToStaticMarkup(createElement(RecoveryPanel, { ...props, snapshot: { ...snapshot, version: "1.4.1", passkey: "detected" } }))).toContain("Recuperar acesso");
+});
+
+it("labels the signer, identified Picnic Safe and verified v5 card in one account component", () => {
+  const card = "0x3333333333333333333333333333333333333333" as Address;
+  const linked = { ...emptyDiagnosis(100, card), cards: [{address:token,card,controllers:[account],delayVersion:"v5" as const,head:0n,tail:0n,cooldown:60n,expiration:0n}] };
+  const result = {...emptyDiagnosis(100,account),linkedCards:[linked]};
+  const props = {account,wallet:token,picnicAccount:account,results:[result],busy:false,lang:"pt" as const};
+  const html = renderToStaticMarkup(createElement(LinkedAccounts,props));
+  expect(html).toContain("Carteira que assina"); expect(html).toContain("Picnic Safe"); expect(html).toContain("Safe do cartão");
+  expect(html.match(/class="linked-accounts"/g)).toHaveLength(1); expect(html).toContain(card);
+  const unrelated = {...result,linkedCards:[{...linked,cards:[{...linked.cards[0],controllers:[token]}]}]};
+  expect(renderToStaticMarkup(createElement(LinkedAccounts,{...props,results:[unrelated]}))).not.toContain('data-account-kind="card-safe"');
+  expect(renderToStaticMarkup(createElement(LinkedAccounts,{...props,picnicAccount:undefined}))).not.toContain('data-account-kind="picnic-safe"');
 });
