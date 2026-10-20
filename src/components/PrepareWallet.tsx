@@ -2,15 +2,14 @@ import { useState } from "react";
 import { formatUnits, type Address, type Chain, type PublicClient } from "viem";
 import { assertChain, same } from "../core/client";
 import type { AccountSnapshot } from "../core/types";
-import { WalletButton } from "./WalletProvider";
 
 type Props = {
   client?: PublicClient; chain: Chain; snapshot?: AccountSnapshot; wallet?: Address;
   lang: "pt" | "en"; busy: boolean; destination: string;
   setDestination: (value: string) => void;
-  run: (task: () => Promise<void>) => Promise<void>; next: () => void;
+  run: (task: () => Promise<void>) => Promise<void>; next: () => void; connect: () => void;
 };
-export function PrepareWallet({ client, chain, snapshot, wallet, lang, busy, destination, setDestination, run, next }: Props) {
+export function PrepareWallet({ client, chain, snapshot, wallet, lang, busy, destination, setDestination, run, next, connect }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [balance, setBalance] = useState<bigint>();
   const [checkedBlock, setCheckedBlock] = useState<bigint>();
@@ -19,7 +18,7 @@ export function PrepareWallet({ client, chain, snapshot, wallet, lang, busy, des
     <p className="eyebrow">{t("PASSO 2 / PREPARAR CARTEIRAS", "STEP 2 / PREPARE WALLETS")}</p>
     <h2>{t("Uma carteira para assinar. Saldo para as taxas.", "A wallet to sign. Funds for fees.")}</h2>
     <p>{t("Conecte a carteira que controla sua conta após o recovery. Ela enviará as transações e pagará o gás nesta rede.", "Connect the wallet that controls your account after recovery. It will send transactions and pay gas on this network.")}</p>
-    <WalletButton busy={busy} lang={lang} />
+    {!wallet && <p className="note">{t("Nenhuma carteira conectada. A conexão é feita no passo 0.", "No wallet connected. Connect it in step 0.")} <button className="text-button" disabled={busy} onClick={connect}>{t("Ir para a conexão →", "Go to connection →")}</button></p>}
     {wallet && <div className="funding-card">
       <h3>{t("Abasteça este endereço", "Fund this address")}</h3>
       <p className="mono">{wallet}</p>

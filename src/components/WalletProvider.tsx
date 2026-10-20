@@ -3,7 +3,7 @@ import { createConfig, http, WagmiProvider } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConnectKitButton } from "connectkit";
-import { chains } from "../catalog/chains";
+import { chains, defaultReadRpcs } from "../catalog/chains";
 import type { Chain } from "viem";
 
 // Browser-wallet discovery works without a WalletConnect project or relay.
@@ -13,7 +13,7 @@ const config = createConfig({
   connectors: [injected()],
   multiInjectedProviderDiscovery: true,
   storage: null,
-  transports: Object.fromEntries(chains.map(chain => [chain.id, http(chain.rpcUrls.default.http[0])])),
+  transports: Object.fromEntries(chains.map(chain => [chain.id, http(defaultReadRpcs(chain)[0])])),
 });
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -21,10 +21,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   </WagmiProvider>;
 }
-export function WalletButton({ busy, lang }: { busy: boolean; lang: "pt" | "en" }) {
-  return <ConnectKitButton.Custom>{({ isConnected, truncatedAddress, show }) =>
-    <button className="outline" disabled={busy} onClick={show}>
-      {isConnected ? truncatedAddress : lang === "pt" ? "Conectar carteira" : "Connect wallet"}
+// Rendered only in step 0; later steps link back there to change the connection.
+export function WalletButton({ busy, lang, primary }: { busy: boolean; lang: "pt" | "en"; primary?: boolean }) {
+  return <ConnectKitButton.Custom>{({ isConnected, show }) =>
+    <button className={primary ? "connect-button" : "outline"} disabled={busy} onClick={show}>
+      {isConnected ? lang === "pt" ? "Trocar ou desconectar" : "Switch or disconnect" : lang === "pt" ? "Conectar carteira" : "Connect wallet"}
     </button>
   }</ConnectKitButton.Custom>;
 }

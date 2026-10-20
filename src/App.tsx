@@ -11,7 +11,6 @@ import { inspectCard, enqueueCard, readQueue, dispatchCard, skipExpiredCard, que
 import { inspectPosition, redeemPosition, claimCovered, settleCovered, claimStader, claimStakingRewards, recoverCoveredDeposit, findCoveredRequests, type Position } from "./core/investments";
 import { useAccount } from "wagmi";
 import { ConnectKitProvider } from "connectkit";
-import { WalletButton } from "./components/WalletProvider";
 import { PrepareWallet } from "./components/PrepareWallet";
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
 import { useDiagnosis, rpcFor, type RpcOverrides } from "./components/useDiagnosis";
@@ -200,7 +199,6 @@ export function App() {
       <a className="brand" href="./"><span className="brand-mark">p.</span><span>picnic<span className="brand-sub">recovery</span></span></a>
       <div className="header-actions"><Chip>{t("Direto na blockchain", "Directly on-chain")}</Chip>
         <button className="quiet" onClick={() => setLang(lang === "pt" ? "en" : "pt")} aria-label="Change language">{lang === "pt" ? "EN" : "PT"}</button>
-        <WalletButton busy={busy} lang={lang} />
       </div>
     </header>
     <main>
@@ -239,9 +237,11 @@ export function App() {
           {step === 0 ? <DiagnosisPanel account={account} setAccount={value => selectAccount(value)} onUseWallet={() => { if (walletAddress) selectAccount(walletAddress, true); }}
             wallet={walletAddress} lang={lang} busy={busy} results={diagnosis.results} gas={diagnosis.gas} overrides={rpcOverrides}
             setRpc={(id, value) => { resetInspection(); setRpcOverrides(old => ({ ...old, [id]: value })); }}
-            rescan={diagnosis.rescan} open={openDiagnosis} /> : <section className="panel compact account-context">
-            <div><span className="small muted">{chain.name}</span><p className="mono small">{snapshot?.address ?? t("Conta ainda não consultada", "Account not inspected yet")}</p></div>
-            <button className="text-button" disabled={busy} onClick={() => goToStep(0)}>{t("Voltar ao diagnóstico de todas as redes", "Back to all-network diagnosis")}</button>
+            rescan={diagnosis.rescan} open={openDiagnosis} custom={diagnosis.customTokens} addCustom={diagnosis.addCustomToken}
+            removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} /> : <section className="panel compact account-context">
+            <div><span className="small muted">{chain.name}</span><p className="mono small">{snapshot?.address ?? t("Conta ainda não consultada", "Account not inspected yet")}</p>
+              <p className="small muted">{t("Carteira conectada", "Connected wallet")}: <span className="mono">{walletAddress ?? t("nenhuma", "none")}</span></p></div>
+            <button className="text-button" disabled={busy} onClick={() => goToStep(0)}>{t("Trocar carteira ou voltar ao diagnóstico", "Change wallet or back to diagnosis")}</button>
           </section>}
           {step !== 0 && diagnosis.results.some(r => r.status === "scanning" || r.status === "queued") && <p className="small muted" role="status">{t("O diagnóstico das outras redes continua em segundo plano.", "Diagnosis of the other networks continues in the background.")}</p>}
           {error && <div className="message error" role="alert">{error}</div>}
@@ -280,13 +280,14 @@ export function App() {
               <p>{t("Importe sua chave de recuperação em uma carteira externa, de forma privada, e conecte essa carteira. Vamos conferir se ela é um guardian da sua conta. Depois, você escolhe uma nova carteira owner, aprova o recovery e aguarda o prazo do contrato.", "Privately import your recovery key into an external wallet and connect it. We will check whether it is a guardian of your account. Then choose a new owner wallet, approve recovery and wait the contract’s delay.")}</p>
               <p className="note">{t("A passkey original é vinculada ao domínio onde foi criada. Esta ferramenta recupera pelo guardian configurado; ela não lê sua passkey da Picnic. Sem owner ou chave de recuperação válida, só o endereço não permite mover os ativos.", "The original passkey is tied to the domain where it was created. This tool uses the configured guardian; it does not read your Picnic passkey. Without a valid owner or recovery key, the address alone cannot authorize moving assets.")}</p>
               <p className="small">{t("O recovery já precisa de gás: cada carteira que envia uma aprovação, inicia ou finaliza paga a taxa em", "Recovery already needs gas: each wallet that sends an approval, starts or finalizes pays fees in")} <strong>{chain.nativeCurrency.symbol}</strong> ({chain.name}).</p>
+              {!walletAddress && <p className="note">{t("A carteira é conectada no passo 0. Se a conta é uma Safe com outro endereço, informe-a primeiro em “Avançado” no passo 0: assim ela continua sendo a conta consultada.", "Wallets are connected in step 0. If the account is a Safe at another address, enter it first under “Advanced” in step 0 so it remains the inspected account.")} <button className="text-button" disabled={busy} onClick={() => goToStep(0)}>{t("Ir para a conexão →", "Go to connection →")}</button></p>}
               {walletAddress && <p className="small">{t("Carteira conectada", "Connected wallet")}: <span className="mono">{walletAddress}</span><br />{snapshot?.recoveries.some(r => r.guardians.some(g => same(g, walletAddress))) ? t("Guardian identificado nesta conta.", "Guardian identified for this account.") : t("Ainda não identificada como guardian nesta consulta.", "Not yet identified as a guardian in this inspection.")}</p>}
               <button className="text-button" disabled={busy} onClick={() => goToStep(2)}>{t("Ver onde colocar gás →", "See where to add gas →")}</button>
-            </> : <p>{t("Você pode pular o recovery. No próximo passo, conecte a carteira e confira se ela é owner da conta consultada.", "You can skip recovery. In the next step, connect the wallet and check that it is an owner of the inspected account.")}</p>}
+            </> : <p>{t("Você pode pular o recovery. No próximo passo, confira se a carteira conectada é owner da conta consultada. Para trocar a conexão, volte ao passo 0.", "You can skip recovery. In the next step, check that the connected wallet is an owner of the inspected account. Return to step 0 to change the connection.")}</p>}
             <p className="small muted">{t("Nunca cole chave privada ou seed nesta ferramenta.", "Never paste a private key or seed phrase into this tool.")}</p>
             <button disabled={busy || !snapshot} onClick={() => goToStep(2)}>{t("Continuar para preparar carteiras →", "Continue to prepare wallets →")}</button>
           </section>}
-          {step === 2 && <PrepareWallet key={`${chainId}:${rpc}:${snapshot?.address}:${walletAddress}:${connection.connector?.uid}`} client={client} chain={chain} snapshot={snapshot} wallet={walletAddress} lang={lang} busy={busy} destination={destination} setDestination={setDestination} run={run} next={() => goToStep(3)} />}
+          {step === 2 && <PrepareWallet key={`${chainId}:${rpc}:${snapshot?.address}:${walletAddress}:${connection.connector?.uid}`} client={client} chain={chain} snapshot={snapshot} wallet={walletAddress} lang={lang} busy={busy} destination={destination} setDestination={setDestination} run={run} next={() => goToStep(3)} connect={() => goToStep(0)} />}
           {step === 3 && <section className="panel compact">
             <p className="eyebrow">{t("PASSO 3 / MOVER O DINHEIRO", "STEP 3 / MOVE FUNDS")}</p>
             <h2>{t("Retire os ativos, no seu ritmo.", "Withdraw assets at your pace.")}</h2>
