@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatUnits, type Address, type EIP1193Provider, type Hex } from "viem";
-import { chainById } from "./catalog/chains";
+import { chains, chainById } from "./catalog/chains";
 import { products } from "./catalog/products";
 import { address, assertChain, parseAmount, publicClient, same } from "./core/client";
 import { inspectAccount } from "./core/inspect";
@@ -11,7 +11,8 @@ import { inspectCard, enqueueCard, readQueue, dispatchCard, skipExpiredCard, que
 import { inspectPosition, redeemPosition, claimCovered, settleCovered, claimStader, claimStakingRewards, recoverCoveredDeposit, findCoveredRequests, type Position } from "./core/investments";
 import { useAccount } from "wagmi";
 import { ConnectKitProvider } from "connectkit";
-import { PrepareWallet } from "./components/PrepareWallet";
+import { PrepareMigration } from "./components/PrepareMigration";
+import { basketsId, chainOf, commitSelection, emptySelection, forAccount, isExcluded, mamoId, migrationItems, positionId, selectedIds, setSelected, transferId, type Selection } from "./components/migration";
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
 import { RecoveryPanel } from "./components/RecoveryPanel";
 import { AssetTable } from "./components/AssetTable";
@@ -20,6 +21,7 @@ import { type NetworkDiagnosis, type TokenHolding } from "./core/diagnosis";
 import { StockTokens } from "./components/StockTokens";
 import { LegacyPanel } from "./components/LegacyPanel";
 import { CallDetails } from "./components/CallDetails";
+import { ChainLogo } from "./components/ChainLogo";
 import { discoverMamo, withdrawMamo, type MamoPosition } from "./core/mamo";
 import { readProgress, saveProgress, downloadProgress, parseProgress } from "./core/progress";
 import type { AccountSnapshot, PreparedAction } from "./core/types";
@@ -44,6 +46,20 @@ export function App() {
   const walletAddress = connection.address;
   const diagnosis = useDiagnosis(account, rpcOverrides);
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
+  // What to move, chosen in Prepare wallets and enforced in Move funds.
+  const items = migrationItems(diagnosis.results, diagnosis.customTokens);
+  const [selectionState, setSelectionState] = useState<Selection>(() => emptySelection(account));
+  const selection = forAccount(selectionState, account);
+  const chosen = selectedIds(selection, items);
+  const excluded = (id: string) => isExcluded(selection, items, id);
+  const rescanning = (id: number) => diagnosis.results.some(r => r.chainId === id && (r.status === "queued" || r.status === "scanning"));
+  // A network being rescanned after a transaction keeps its place in Move funds.
+  const chosenChains = chains.map(c => c.id).filter(id => [...chosen].some(item => chainOf(item) === id)
+    || rescanning(id) && Object.entries(selection.decided).some(([item, value]) => value && chainOf(item) === id));
+  // A different source account never inherits another account's choices.
+  useEffect(() => { setSelectionState(old => forAccount(old, account)); }, [account]);
+  // Entering Move funds freezes the defaults: assets found later are not included implicitly.
+  useEffect(() => { if (step === 3) setSelectionState(old => commitSelection(forAccount(old, account), items)); }, [step, account]);
   const [tab, setTab] = useState("transfer");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -154,6 +170,8 @@ export function App() {
   }
   async function prepareTransfer(card = false) {
     const safe = requireSnapshot();
+    const selectedId = transferId(chainId, token);
+    if (!card && excluded(selectedId)) throw new Error(t("Este ativo foi desmarcado em Preparar carteiras. Selecione-o lá para movê-lo.", "This asset was unticked in Prepare wallets. Select it there to move it."));
     const coin = token.trim() ? address(token) : null;
     const decimals = coin ? await requireClient().readContract({ address: coin, abi: erc20Abi, functionName: "decimals" }) : 18;
     const value = parseAmount(amount, decimals);
@@ -190,6 +208,7 @@ export function App() {
     ["invest", t("Investimentos", "Investments")], ["legacy", t("Cestas antigas", "Legacy baskets")],
   ];
   const explorer = chain.blockExplorers?.default.url;
+  const visiblePositions = positions.filter(p => !excluded(positionId(chainId, p.product.id)));
   return <ConnectKitProvider theme="minimal" mode="light" options={{
     language: lang === "pt" ? "pt-BR" : "en-US", hideBalance: true,
     hideNoWalletCTA: true, hideRecentBadge: true, enforceSupportedChains: false,
@@ -242,16 +261,10 @@ export function App() {
               networkIds={diagnosis.results.filter(r => r.snapshot?.passkey === "detected").map(r => r.chainId)}
               selectNetwork={id => { const result = diagnosis.results.find(r => r.chainId === id); if (result) openDiagnosis(result, 1); }}
               prepare={() => goToStep(2)} review={(module, operation) => void run(async () => openReview(recoveryAction(requireSnapshot(), module, operation, operation === "approve" || operation === "start" ? owner : undefined)))} /> : undefined} /> : <section className="panel compact account-context">
-            <div><span className="small muted">{chain.name}</span><p className="mono small">{snapshot?.address ?? t("Conta ainda não consultada", "Account not inspected yet")}</p>
+            <div>{step === 3 && <span className="small muted">{chain.name}</span>}<p className="mono small">{snapshot?.address ?? t("Conta ainda não consultada", "Account not inspected yet")}</p>
               <p className="small muted">{t("Carteira conectada", "Connected wallet")}: <span className="mono">{walletAddress ?? t("nenhuma", "none")}</span></p></div>
             <button className="text-button" disabled={busy} onClick={() => goToStep(0)}>{t("Trocar carteira ou voltar ao diagnóstico", "Change wallet or back to diagnosis")}</button>
           </section>}
-          {step === 2 ? <div className="panel compact">
-            <Field label={t("Conta nesta rede", "Account on this network")}><select aria-label={t("Conta nesta rede", "Account on this network")} value={chainId} disabled={busy} onChange={event => {
-              const result = diagnosis.results.find(r => r.chainId === Number(event.target.value));
-              if (result?.snapshot) openDiagnosis(result, step);
-            }}>{diagnosis.results.filter(r => r.snapshot && same(r.account, account)).map(r => <option key={r.chainId} value={r.chainId}>{chainById(r.chainId).name}</option>)}</select></Field>
-          </div> : null}
           {step > 1 && diagnosis.results.some(r => r.status === "scanning" || r.status === "queued") && <p className="small muted" role="status">{t("O diagnóstico das outras redes continua em segundo plano.", "Diagnosis of the other networks continues in the background.")}</p>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}
@@ -275,12 +288,27 @@ export function App() {
               if (record.chainId === chainId && snapshot) await refresh();
             })}>{t("Conferir recibo", "Check receipt")}</button></>}
           </div>}
-          {step === 2 && <PrepareWallet key={`${chainId}:${rpc}:${snapshot?.address}:${walletAddress}:${connection.connector?.uid}`} client={client} chain={chain} snapshot={snapshot} wallet={walletAddress} lang={lang} busy={busy} destination={destination} setDestination={setDestination} run={run} next={() => goToStep(3)} connect={() => goToStep(0)} />}
+          {step === 2 && <PrepareMigration lang={lang} busy={busy} account={account} wallet={walletAddress} results={diagnosis.results} items={items}
+            selection={selection} select={(ids, value) => setSelectionState(old => setSelected(forAccount(old, account), items, ids, value))} overrides={rpcOverrides}
+            destination={destination} setDestination={setDestination} rescan={diagnosis.rescan} addCustom={diagnosis.addCustomToken} retryCustom={diagnosis.retryCustomToken}
+            run={run} connect={() => goToStep(0)} next={() => {
+              const target = chosenChains.includes(chainId) ? chainId : chosenChains[0];
+              const result = diagnosis.results.find(r => r.chainId === target);
+              if (result) openDiagnosis(result, 3, items.find(item => chosen.has(item.id) && item.chainId === target)?.tab);
+            }} />}
           {step === 3 && <section className="panel compact">
             <p className="eyebrow">{t("PASSO 2 / MOVER O DINHEIRO", "STEP 2 / MOVE FUNDS")}</p>
             <h2>{t("Retire os ativos, no seu ritmo.", "Withdraw assets at your pace.")}</h2>
             <p>{t("Escolha de onde retirar. Alguns investimentos e o cartão têm uma espera antes de concluir. Revise cada operação e mantenha gás para as próximas etapas.", "Choose where to withdraw from. Some investments and the card require a waiting period. Review each operation and keep gas for the next steps.")}</p>
-            <AssetTable lang={lang} busy={busy} ready={diagnosis.results.length > 0} results={diagnosis.results} custom={diagnosis.customTokens}
+            <div className="move-networks" role="group" aria-label={t("Redes selecionadas", "Selected networks")}>
+              {chains.filter(c => chosenChains.includes(c.id)).map(c => <button key={c.id} type="button" disabled={busy} aria-pressed={c.id === chainId} className={c.id === chainId ? "is-current" : ""} onClick={() => {
+                const result = diagnosis.results.find(r => r.chainId === c.id);
+                if (result) openDiagnosis(result, 3, items.find(item => chosen.has(item.id) && item.chainId === c.id)?.tab);
+              }}><ChainLogo id={c.id} size={20} />{c.name}<span className="tab-count">{[...chosen].filter(id => chainOf(id) === c.id).length}</span></button>)}
+              <button type="button" className="text-button" disabled={busy} onClick={() => goToStep(2)}>{t("Editar seleção", "Edit selection")}</button>
+            </div>
+            {!chosenChains.includes(chainId) && chosen.size > 0 && !rescanning(chainId) && <p className="note">{t(`Nenhum ativo de ${chain.name} está selecionado. Escolha uma das redes acima.`, `No ${chain.name} asset is selected. Choose one of the networks above.`)}</p>}
+            <AssetTable lang={lang} busy={busy} ready={diagnosis.results.length > 0} results={diagnosis.results} custom={diagnosis.customTokens} selected={chosen}
               open={openDiagnosis} addCustom={diagnosis.addCustomToken} removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} />
             <nav className="asset-tabs" aria-label={t("Origem dos ativos", "Asset source")}>{nav.map(([id, label]) => <button key={id} disabled={busy} aria-current={tab === id ? "page" : undefined} className={tab === id ? "nav-active" : ""} onClick={() => { setTab(id); setReview(undefined); }}>{label}</button>)}</nav>
           </section>}
@@ -315,7 +343,8 @@ export function App() {
             <button className="outline" disabled={busy || !snapshot} onClick={() => run(scanPositions)}>{t("Consultar posições", "Inspect positions")}</button>
             <div className="grid two"><Field label={t("Quantidade de cotas para resgatar", "Shares to redeem")}><input disabled={busy} value={amount} onChange={e => setAmount(e.target.value)} placeholder={t("Vazio = disponível", "Empty = available")} inputMode="decimal" /></Field>
               <Field label={t("Destino (vazio = esta Safe)", "Destination (empty = this Safe)")}><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="0x…" /></Field></div>
-            {positions.map(p => <article className="position" key={p.product.id}>
+            {positions.length > visiblePositions.length && <p className="small muted">{t("Posições desmarcadas em Preparar carteiras ficam ocultas.", "Positions unticked in Prepare wallets are hidden.")}</p>}
+            {visiblePositions.map(p => <article className="position" key={p.product.id}>
               <div className="section-title"><h3>{p.product.name}</h3><strong>{formatUnits(p.balance, p.decimals)}</strong></div>
               <p className="mono small muted">{p.product.address}</p>
               {p.product.note && <p className="note">{p.product.note}</p>}
@@ -356,14 +385,15 @@ export function App() {
                 <button className="outline" disabled={busy} onClick={() => run(async () => openReview(await claimStader(requireClient(), requireSnapshot(), p.product, i)))}>{t("Revisar claim", "Review claim")}</button>
               </div>)}
             </article>)}
-            {mamoPositions.map(p => <article className="position" key={p.address}>
+            {!excluded(mamoId(chainId)) && mamoPositions.map(p => <article className="position" key={p.address}>
               <h3>MAMO strategy · {formatUnits(p.balance, p.decimals)}</h3><p className="mono small">{p.address}</p>
               <div className="row"><button disabled={busy || !p.balance} onClick={() => run(async () => openReview(await withdrawMamo(requireClient(), requireSnapshot(), p.address)))}>{t("Retirar MAMO", "Withdraw MAMO")}</button>
                 <button className="outline" disabled={busy} onClick={() => run(async () => openReview(await withdrawMamo(requireClient(), requireSnapshot(), p.address, true)))}>{t("Receber recompensas", "Claim rewards")}</button></div>
             </article>)}
             {positionFailures.length > 0 && <details className="message warning"><summary>{t("Consulta parcial — posições não verificadas", "Partial scan — unverified positions")} ({positionFailures.length})</summary>{positionFailures.map(f => <p key={f} className="small">{f}</p>)}</details>}
           </section>}
-          {step === 3 && tab === "legacy" && <LegacyPanel key={`${chainId}:${snapshot?.address ?? ""}:${rpc}`} client={client} snapshot={snapshot} busy={busy} lang={lang} run={run} review={openReview} invalidate={() => setReview(undefined)} />}
+          {step === 3 && tab === "legacy" && excluded(basketsId(chainId)) && <section className="panel compact"><p className="note">{t("As cestas antigas desta rede não estão selecionadas. Selecione-as em Preparar carteiras para movê-las.", "Legacy baskets on this network are not selected. Select them in Prepare wallets to move them.")}</p></section>}
+          {step === 3 && tab === "legacy" && !excluded(basketsId(chainId)) && <LegacyPanel key={`${chainId}:${snapshot?.address ?? ""}:${rpc}`} client={client} snapshot={snapshot} busy={busy} lang={lang} run={run} review={openReview} invalidate={() => setReview(undefined)} />}
           {review && <section className="panel review" aria-label={t("Revisão da transação", "Transaction review")}>
             <p className="eyebrow">{t("ANTES DE ASSINAR", "BEFORE YOU SIGN")}</p><h2>{review.label}</h2>
             <dl><dt>{t("Rede", "Network")}</dt><dd>{chain.name} ({review.chainId})</dd><dt>{t("Conta", "Account")}</dt><dd className="mono">{review.account}</dd>
