@@ -13,6 +13,7 @@ import { sendAction, approveSafeProposal, safeHash, safeTypes, safeBatchAction, 
 import { batchPartAction, planBatch, readBatchFacts, screenAssetTransfers, type BatchSource } from "../src/core/batch";
 import { findMultiSend } from "../src/core/multisend";
 import { verifyReceipt, type ReceiptExpectation } from "../src/core/receipts";
+import { BASKET, BASKET_BRL, basketAbi } from "../src/core/legacy";
 import { parseProgress } from "../src/core/progress";
 
 // Gnosis chain ID so the pinned registry entry applies; all state is local Anvil.
@@ -182,3 +183,49 @@ describe("Safe batch migration through the canonical MultiSendCallOnly runtime",
     expect(await balance(tokenB, destination)).toBe(60n);
   }, 60_000);
 });
+
+
+it("withdraws only BRL then transfers the basket NFT atomically, leaving locked assets inside", async () => {
+  const compiled = JSON.parse(solc.compile(JSON.stringify({ language: "Solidity", sources: {
+    "Basket.sol": { content: readFileSync(new URL("./fixtures/TestBasket.sol", import.meta.url), "utf8") },
+    "Token.sol": { content: readFileSync(new URL("./fixtures/TestToken.sol", import.meta.url), "utf8") },
+  }, settings: { evmVersion: "paris", outputSelection: { "*": { "*": ["abi", "evm.deployedBytecode"] } } } })));
+  const basket = compiled.contracts["Basket.sol"].TestBasket;
+  await raw("anvil_setCode", [BASKET, `0x${basket.evm.deployedBytecode.object}`]);
+  await raw("anvil_setCode", [BASKET_BRL, `0x${compiled.contracts["Token.sol"].TestToken.evm.deployedBytecode.object}`]);
+  const safe = await newSafe([accounts[0]], 1n), destination = accounts[6];
+  const write = async (address: Address, abi: readonly unknown[], functionName: string, args: unknown[]) => client.waitForTransactionReceipt({ hash: await wallet.writeContract({ account: accounts[0], address, abi, functionName, args }) });
+  await write(BASKET, basket.abi, "mint", [1n, safe]);
+  const basketWallet = await client.readContract({ address: BASKET, abi: basketAbi, functionName: "walletOf", args: [1n] });
+  await mint(BASKET_BRL, basketWallet, 100n);
+  await mint(tokenB, basketWallet, 300_000n);
+  const blockAbi = parseAbi(["function setTransfersBlocked(bool blocked)"]);
+  await write(tokenB, blockAbi, "setTransfersBlocked", [true]);
+  const snapshot = await inspectAccount(client, safe, 100);
+  const facts = [{ id: "basket", label: "Basket #1", kind: "basket" as const, nftId: 1n, wallet: basketWallet, owned: true, native: 0n, stakes: [], tokens: [
+    { key: "brl", token: BASKET_BRL, name: "BRL", category: "token" as const, balance: 100n, fresh: 100n, assetIds: [], types: [] },
+    { key: "locked", token: tokenB, name: "Locked", category: "token" as const, balance: 300_000n, fresh: 300_000n, assetIds: [], types: [] },
+  ] }];
+  const prepareBasket = (to: Address) => batchPartAction({ snapshot, plan: planBatch({ snapshot, destination: to, facts, multisend: MS141 }), part: 0, label: "BRL + NFT" });
+  // An incompatible NFT receiver must roll back the preceding BRL transfers too.
+  const reject = prepareBasket(tokenA);
+  const { safeExecution } = await import("../src/core/actions");
+  const failedCall = await safeExecution(client, reject, accounts[0], undefined, true);
+  const failed = await client.waitForTransactionReceipt({ hash: await wallet.sendTransaction({ account: accounts[0], ...failedCall, gas: 1_000_000n }) });
+  expect(failed.status).toBe("reverted");
+  expect(await balance(BASKET_BRL, basketWallet)).toBe(100n);
+  expect(await balance(BASKET_BRL, tokenA)).toBe(0n);
+  expect((await client.readContract({ address: BASKET, abi: basketAbi, functionName: "ownerOf", args: [1n] })).toLowerCase()).toBe(safe.toLowerCase());
+  const checked = await screenAssetTransfers(client, snapshot, facts, destination, accounts[0], MS141);
+  expect(checked[0].transferBlocked).toBe(false);
+  methods.length = 0;
+  let expectation: ReceiptExpectation | undefined;
+  const receipt = await sendAction(client, provider(0, true), prepareBasket(destination), (_, e) => { expectation = e; });
+  expect(methods.filter(m => m === "eth_sendTransaction")).toHaveLength(1);
+  expect(await balance(BASKET_BRL, destination)).toBe(100n);
+  expect(await balance(BASKET_BRL, basketWallet)).toBe(0n);
+  expect(await balance(tokenB, basketWallet)).toBe(300_000n);
+  expect((await client.readContract({ address: BASKET, abi: basketAbi, functionName: "ownerOf", args: [1n] })).toLowerCase()).toBe(destination.toLowerCase());
+  expect(expectation?.nfts).toEqual([{ collection: BASKET, from: snapshot.address, recipient: destination, tokenId: "1" }]);
+  expect(() => verifyReceipt(receipt, expectation)).not.toThrow();
+}, 90_000);

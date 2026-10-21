@@ -162,8 +162,8 @@ export function BatchMigration(props: Props) {
         : await sendAction(client, await props.provider(), action, { onSubmitted, onSigning: stage => patch(chainId, { stage }) });
       props.onConfirmed(chainId, receipt.transactionHash);
       if (approveOnly) { patch(chainId, { status: "ready", stage: undefined }); return; }
-      const basketIds = includedEntries(plan, 0).flatMap(e => selected.find(item => item.id === e.id)?.basketId ?? []);
-      if (basketIds.length) baskets.refresh(basketIds);
+      // Transferred NFTs no longer belong to this Safe; diagnosis removes them.
+      // Keep the existing content cache instead of reloading every basket.
       // Done only when nothing selected remains for later or individual steps.
       const leftovers = plan.parts.length > 1 || batchHasFollowups(plan);
       patch(chainId, { status: "idle", stage: undefined, plan: undefined, action: undefined, safeTxHash: undefined, key: undefined,
@@ -262,7 +262,8 @@ export const batchHasFollowups = (plan?: BatchPlan) => !!plan?.entries.some(e =>
 const laterOf = (plan: BatchPlan) => plan.entries.filter(e => e.status === "later" || (e.status === "included" && e.later.length));
 function outcomeText(e: BatchEntry, lang: Lang) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
-  return e.outcome === "shares" ? t("As cotas vão para o destino, sem resgate", "Shares will go to the destination, not redeemed")
+  return e.outcome === "basket" ? t(e.receives.length ? "Retira BRL e transfere o NFT" : "Transfere o NFT da cesta", e.receives.length ? "Withdraw BRL and transfer the NFT" : "Transfer the basket NFT")
+    : e.outcome === "shares" ? t("As cotas vão para o destino, sem resgate", "Shares will go to the destination, not redeemed")
     : e.outcome === "queued" ? t("Cria o pedido de saque do cartão; os fundos chegam só depois da espera", "Creates the card withdrawal request; funds arrive only after the waiting period")
     : t("Vai para o destino", "Will go to the destination");
 }
@@ -322,6 +323,7 @@ export function PlanView({ plan, snapshot, action, safeTxHash, wallet, lang, sen
         <div className="batch-entry-head"><strong>{e.label}</strong><em className={`token-badge outcome-${e.outcome}`}>{outcomeText(e, lang)}</em></div>
         {e.receives.length > 0 && <ul className="batch-amounts">{e.receives.map((r, i) => <li key={i}><span className="numeric">{amount(r)}</span></li>)}</ul>}
         {e.outcome === "queued" && <p className="small">{t("Os fundos do cartão não chegam nesta transação. Depois da espera do contrato, execute o pedido pela linha do cartão.", "Card funds do not arrive in this transaction. After the contract waiting period, execute the request from the card row.")}</p>}
+        {e.outcome === "basket" && <p className="small">{t(e.receives.length ? "O BRL vai para o destino. Depois, o NFT vai para o mesmo endereço com os demais ativos dentro, na mesma transação." : "O NFT vai para o destino com todos os ativos dentro.", e.receives.length ? "BRL goes to the destination. Then the NFT goes to the same address with the remaining assets inside, in the same transaction." : "The NFT goes to the destination with all its assets inside.")}</p>}
         {item(e.id)?.basketId !== undefined && <BasketContentsView contents={item(e.id)!.contents} lang={lang} compact />}
         <Notes entry={e} lang={lang} />
       </li>)}</ul>

@@ -35,6 +35,7 @@ export type AccountSnapshot = {
   nativeBalance: bigint;
   warnings: string[];
 };
+export type NftReceive = { collection: Address; from: Address; recipient: Address; tokenId: bigint };
 export type Receive = { token: Address | null; recipient: Address; minimum: bigint };
 export type PreparedAction = {
   kind: "direct" | "safe";
@@ -56,6 +57,7 @@ export type PreparedAction = {
   // Further effects a batch must prove: every ERC-20/native receipt and every
   // card queue entry. `receive` stays the single-action form.
   receives?: Receive[];
+  nfts?: NftReceive[];
   queued?: { module: Address; txHash: Hex }[];
   // Recipients that must never receive funds (e.g. known recovery guardians).
   // Fresh guardians of the source Safe are added again immediately before sending.

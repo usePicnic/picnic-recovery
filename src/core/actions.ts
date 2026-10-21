@@ -143,7 +143,7 @@ async function assertFresh(client: PublicClient, action: PreparedAction) {
 }
 export const actionReceives = (action: PreparedAction): Receive[] => [...action.receive ? [action.receive] : [], ...action.receives ?? []];
 export function assertAllowedRecipients(action: PreparedAction, forbidden: readonly string[]) {
-  const blocked = [...actionReceives(action).map(effect => effect.recipient), ...action.destinations ?? []]
+  const blocked = [...actionReceives(action).map(effect => effect.recipient), ...action.destinations ?? [], ...action.nfts?.map(nft => nft.recipient) ?? []]
     .find(recipient => forbidden.some(address => same(address, recipient)));
   if (blocked) throw new Error("The destination is a recovery guardian of this account. Choose a wallet that is not a guardian");
 }
@@ -165,6 +165,7 @@ export function receiptExpectation(action: PreparedAction, hash?: Hex): ReceiptE
     ...(action.receive?.token ? { receive: { token: action.receive.token, recipient: action.receive.recipient, minimum: action.receive.minimum.toString() } } : {}),
     ...(tokens.length ? { receives: tokens.map(r => ({ token: r.token, recipient: r.recipient, minimum: r.minimum.toString() })) } : {}),
     ...(native.length && action.kind === "safe" ? { native: native.map(r => ({ recipient: r.recipient, minimum: r.minimum.toString() })) } : {}),
+    ...(action.nfts?.length ? { nfts: action.nfts.map(nft => ({ ...nft, tokenId: nft.tokenId.toString() })) } : {}),
     ...(action.queued?.length ? { queued: action.queued } : {}),
   };
 }

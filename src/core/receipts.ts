@@ -1,4 +1,4 @@
-import { decodeEventLog, type Address, type Hex, type TransactionReceipt } from "viem";
+import { decodeEventLog, parseAbi, type Address, type Hex, type TransactionReceipt } from "viem";
 import { delayAbi, erc20Abi, legacySafeEvents, safeAbi } from "./abi";
 import { same } from "./client";
 
@@ -12,12 +12,14 @@ export type ReceiptExpectation = {
   operation?: 0 | 1; multisend?: Address; calls?: number;
   receive?: TokenExpectation;
   receives?: TokenExpectation[];
+  nfts?: { collection: Address; from: Address; recipient: Address; tokenId: string }[];
   // Native coin sent by a Safe batch child. No log exists for it: it is
   // proven by ExecutionSuccess of the exact Safe hash (which binds the value),
   // because MultiSendCallOnly reverts entirely if any child fails.
   native?: { recipient: Address; minimum: string }[];
   queued?: { module: Address; txHash: Hex }[];
 };
+const nftEvents = parseAbi(["event Transfer(address indexed from,address indexed to,uint256 indexed tokenId)"]);
 type Log = { address: Address; data: Hex; topics: readonly Hex[] };
 
 export function safeReceiptSucceeded(logs: readonly Log[], safe: Address, expectedHash?: Hex) {
@@ -68,6 +70,19 @@ export function verifyReceipt(receipt: Pick<TransactionReceipt, "logs" | "status
   }
   const missing = [...totals.values()].filter(effect => netReceived(receipt.logs, effect.token, effect.recipient) < effect.sum);
   if (missing.length) throw new Error(`Receipt does not prove the expected receipt of ${missing.length} token(s): ${missing.map(m => m.token).join(", ")}. Inspect before retrying`);
+  for (const nft of expectation.nfts ?? []) {
+    let received = false, finalOwner: Address | undefined;
+    for (const log of receipt.logs) {
+      if (!same(log.address, nft.collection) || log.topics.length !== 4) continue;
+      try {
+        const event = decodeEventLog({ abi: nftEvents, eventName: "Transfer", data: log.data, topics: log.topics as [Hex, ...Hex[]] });
+        if (event.args.tokenId !== BigInt(nft.tokenId)) continue;
+        if (same(event.args.from, nft.from) && same(event.args.to, nft.recipient)) received = true;
+        finalOwner = event.args.to;
+      } catch { /* unrelated event */ }
+    }
+    if (!received || !same(finalOwner ?? "", nft.recipient)) throw new Error("Receipt does not prove the expected basket NFT transfer; inspect before retrying");
+  }
   for (const entry of expectation.queued ?? []) {
     const found = receipt.logs.some(log => {
       if (!same(log.address, entry.module)) return false;

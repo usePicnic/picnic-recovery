@@ -1,3 +1,4 @@
+import { BASKET_BRL } from "../src/core/legacy";
 import { describe, expect, it } from "vitest";
 import { decodeFunctionData, encodeAbiParameters, zeroAddress, type Address, type PublicClient, type EIP1193Provider } from "viem";
 import { polygon } from "viem/chains";
@@ -28,12 +29,26 @@ describe("reviewed batch edge cases", () => {
   it("does not turn failed fresh basket balances into a migrated empty basket", async () => {
     let calls = 0;
     const ok = (n: bigint) => ({ success: true, returnData: encodeAbiParameters([{ type: "uint256" }], [n]) });
-    const client = { readContract: async () => ++calls === 1 ? [ok(BigInt(safe)), ok(BigInt(wallet))] : [ok(0n), { success: false, returnData: "0x" }] } as unknown as PublicClient;
+    const client = { readContract: async () => ++calls === 1 ? [ok(BigInt(safe)), ok(BigInt(wallet))] : [{ success: false, returnData: "0x" }] } as unknown as PublicClient;
     const facts = await readBatchFacts(client, snapshot, [{ id: "basket", kind: "basket", label: "Basket", nftId: 1n, contents }], polygon.contracts.multicall3.address);
     const plan = planBatch({ snapshot, destination: recipient, facts, multisend });
     expect(plan.entries[0].status).toBe("individual");
     expect(plan.entries[0].notes.join(" ")).toMatch(/unknown, not zero/);
     expect(plan.parts).toEqual([]);
+  });
+  it("reads BRL directly even without cached contents and does not reread unrelated tokens", async () => {
+    let calls = 0;
+    const ok = (n: bigint) => ({ success: true, returnData: encodeAbiParameters([{ type: "uint256" }], [n]) });
+    const client = { readContract: async ({ args }: { args: [ { target: Address }[] ] }) => {
+      if (++calls === 1) return [ok(BigInt(safe)), ok(BigInt(wallet))];
+      expect(args[0].map(c => c.target)).toEqual([BASKET_BRL]);
+      return [ok(20n)];
+    } } as unknown as PublicClient;
+    const facts = await readBatchFacts(client, snapshot, [{ id: "basket", kind: "basket", label: "Basket", nftId: 1n }], polygon.contracts.multicall3.address);
+    const entry = planBatch({ snapshot, destination: recipient, facts, multisend }).entries[0];
+    expect(entry.receives).toEqual([{ token: BASKET_BRL, recipient, minimum: 20n }]);
+    expect(entry.nfts).toHaveLength(1);
+    expect(entry.calls).toHaveLength(3);
   });
   it("never queues a card balance twice and detects newly queued requests before sending", async () => {
     const pending = { ...card, delay: { ...card.delay!, tail: 1n } };
@@ -123,7 +138,7 @@ it("simulates the whole basket route together and excludes it without losing the
   const { multiSendAbi, unpackMultiSend } = await import("../src/core/multisend");
   const { BASKET, basketAbi } = await import("../src/core/legacy");
   const facts: BatchFact[] = [
-    { id: "basket", kind: "basket", label: "Basket #1", nftId: 1n, owned: true, wallet, tokens: [{ ...contents.holdings[0], fresh: 20n }], native: 0n, stakes: [], contents: "complete" },
+    { id: "basket", kind: "basket", label: "Basket #1", nftId: 1n, owned: true, wallet, tokens: [{ ...contents.holdings[0], token: BASKET_BRL, fresh: 20n }], native: 0n, stakes: [], contents: "complete" },
     { id: "native", kind: "native", label: "POL", balance: 5n }, card,
     { id: "empty", kind: "token", label: "Empty", token, balance: 0n },
     { id: "unknown", kind: "unidentified", label: "Unknown" },
@@ -136,9 +151,10 @@ it("simulates the whole basket route together and excludes it without losing the
     if (args[3] === 1) {
       const packed = decodeFunctionData({ abi: multiSendAbi, data: args[2] as `0x${string}` });
       const children = unpackMultiSend(packed.args[0]);
-      expect(children).toHaveLength(2); expect(children[0].to).toBe(BASKET);
+      expect(children).toHaveLength(3); expect(children[0].to).toBe(BASKET);
       expect(decodeFunctionData({ abi: basketAbi, data: children[0].data }).functionName).toBe("withdrawPortfolio");
-      expect(children[1].to).toBe(token);
+      expect(children[1].to).toBe(BASKET_BRL);
+      expect(decodeFunctionData({ abi: basketAbi, data: children[2].data })).toMatchObject({ functionName: "safeTransferFrom", args: [safe, recipient, 1n] });
       throw new Error("Execution reverted GS013");
     }
     return { data: "0x" };

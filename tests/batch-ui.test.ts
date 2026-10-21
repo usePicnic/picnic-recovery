@@ -116,3 +116,17 @@ it("shows blocked tokens as red pending items rather than offering an individual
   const html = renderToStaticMarkup(createElement(Leftovers, { plan, items: [], lang: "pt", openItem: () => {} }));
   expect(html).toContain("Transferência bloqueada"); expect(html).not.toContain("retire individualmente");
 });
+
+
+it("explains that BRL goes separately and remaining contents follow the NFT", async () => {
+  const { BASKET_BRL } = await import("../src/core/legacy");
+  const fact: BatchFact = { id: "basket", kind: "basket", label: "Basket #1", nftId: 1n, wallet: usdc, owned: true, native: 0n, stakes: [], tokens: [
+    { key: "brl", token: BASKET_BRL, name: "BRL", category: "token", balance: 1n, fresh: 1n, types: [], assetIds: [] },
+  ] };
+  const plan = planBatch({ snapshot, destination: dest, facts: [fact], multisend: MS141 });
+  const action = batchPartAction({ snapshot, plan, part: 0, label: "Basket" });
+  const html = renderToStaticMarkup(createElement(PlanView, { plan, snapshot, action, wallet: owner, lang: "pt", sent: 0, items: [], openItem: () => {}, amount: () => "1 BRL" }));
+  expect(html).toContain("Retira BRL e transfere o NFT");
+  expect(html).toContain("com os demais ativos dentro, na mesma transação");
+  expect(batchHasFollowups(plan)).toBe(false);
+});

@@ -11,7 +11,7 @@ import { verifyReceipt } from "../src/core/receipts";
 import { parseProgress } from "../src/core/progress";
 import { delayAbi, erc20Abi, safeAbi } from "../src/core/abi";
 import { queueHash } from "../src/core/card";
-import { basketAbi } from "../src/core/legacy";
+import { BASKET, BASKET_BRL, basketAbi } from "../src/core/legacy";
 import { basketReadPlan, readBasketContents } from "../src/core/basket-contents";
 import { destinationError, knownGuardians, newOwnerError } from "../src/core/destination";
 import { ReadPool, type ReadCheckpoint } from "../src/core/reads";
@@ -84,7 +84,7 @@ describe("batch planning", () => {
     { id: "137:token:usdc", kind: "token", label: "USDC", token: usdc, balance: 100n },
     { id: "137:token:usdt", kind: "token", label: "USDT", token: usdt, balance: 0n },
     { id: "137:baskets:9", kind: "basket", label: "Basket #9", nftId: 9n, owned: true, wallet: basketWallet, native: 2n, contents: "complete",
-      tokens: [{ key: `erc20:${usdc.toLowerCase()}`, token: usdc, category: "token", name: "USD Coin", symbol: "USDC", balance: 25n, fresh: 25n, decimals: 6, assetIds: [], types: ["token"] }],
+      tokens: [{ key: `erc20:${usdc.toLowerCase()}`, token: BASKET_BRL, category: "token", name: "Brilliant", symbol: "BRL", balance: 25n, fresh: 25n, decimals: 6, assetIds: [], types: ["token"] }],
       stakes: [{ key: "stake:x:1", category: "position", name: "Farm", balance: 4n, assetIds: [], types: ["IAutofarmDeposit"] }] },
     { id: "137:baskets", kind: "unidentified", label: "Unidentified baskets" },
   ];
@@ -97,16 +97,19 @@ describe("batch planning", () => {
     const basket = plan.entries.find(e => e.id === "137:baskets:9")!;
     const withdraw = decodeFunctionData({ abi: basketAbi, data: basket.calls[0].data });
     expect(withdraw.functionName).toBe("withdrawPortfolio");
-    expect(withdraw.args).toEqual([9n, { tokens: [usdc], amounts: [100_000n] }, 100_000n, [], []]);
+    expect(withdraw.args).toEqual([9n, { tokens: [BASKET_BRL], amounts: [100_000n] }, 0n, [], []]);
     // The Safe forwards exactly the basket amounts in the same transaction.
-    expect(basket.receives).toEqual([{ token: usdc, recipient: dest, minimum: 25n }, { token: null, recipient: dest, minimum: 2n }]);
-    expect(basket.later.join(" ")).toMatch(/protocol position/);
+    expect(basket.receives).toEqual([{ token: BASKET_BRL, recipient: dest, minimum: 25n }]);
+    expect(decodeFunctionData({ abi: basketAbi, data: basket.calls[2].data })).toMatchObject({ functionName: "safeTransferFrom", args: [safe, dest, 9n] });
+    expect(basket.nfts).toEqual([{ collection: BASKET, from: safe, recipient: dest, tokenId: 9n }]);
+    expect(basket.later).toEqual([]);
     const action = batchPartAction({ snapshot: snap(), plan, part: 0, label: "Batch" });
     expect(action.batch?.calls).toHaveLength(5);
     const expectation = receiptExpectation(action, `0x${"ab".repeat(32)}`);
     expect(expectation.operation).toBe(1);
-    expect(expectation.receives).toEqual([{ token: usdc, recipient: dest, minimum: "100" }, { token: usdc, recipient: dest, minimum: "25" }]);
-    expect(expectation.native).toEqual([{ recipient: dest, minimum: "5" }, { recipient: dest, minimum: "2" }]);
+    expect(expectation.receives).toEqual([{ token: usdc, recipient: dest, minimum: "100" }, { token: BASKET_BRL, recipient: dest, minimum: "25" }]);
+    expect(expectation.native).toEqual([{ recipient: dest, minimum: "5" }]);
+    expect(expectation.nfts).toEqual([{ collection: BASKET, from: safe, recipient: dest, tokenId: "9" }]);
   });
   it("uses explicit individual fallbacks for EOAs and unverified multisend, and refuses guardian or source destinations", () => {
     const eoa = planBatch({ snapshot: snap({ version: "EOA" }), destination: dest, facts, multisend: MS141 });

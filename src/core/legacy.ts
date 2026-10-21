@@ -6,10 +6,12 @@ import { safeAction } from "./actions";
 import type { AccountSnapshot } from "./types";
 
 export const BASKET = "0xee13C86EE4eb1EC3a05E2cc3AB70576F31666b3b" as const;
+export const BASKET_BRL = "0x479D3214079C38eD9ab296D96b88bFe23EEd0002" as const;
 export const basketAbi = parseAbi([
   "function editPortfolio(uint256 nftId,address[] bridgeAddresses,bytes[] bridgeEncodedCalls)",
   "function tokenCounter() view returns (uint256)",
   "function ownerOf(uint256 nftId) view returns (address)",
+  "function safeTransferFrom(address from,address to,uint256 tokenId)",
   "function walletOf(uint256 nftId) view returns (address)",
   "function withdrawPortfolio(uint256 nftId,(address[] tokens,uint256[] amounts) outputs,uint256 outputEthPercentage,address[] bridgeAddresses,bytes[] bridgeEncodedCalls)",
   "event Transfer(address indexed from,address indexed to,uint256 indexed tokenId)",

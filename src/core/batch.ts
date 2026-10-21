@@ -4,13 +4,13 @@ import { delayAbi, erc20Abi, safeAbi } from "./abi";
 import { address, same } from "./client";
 import { prevalidatedSignature, safeBatchAction } from "./actions";
 import { aggregateWords, balanceOfData } from "./reads";
-import { BASKET, basketAbi } from "./legacy";
+import { BASKET, BASKET_BRL, basketAbi } from "./legacy";
 import { inspectCard, queueHash, type CardDelay } from "./card";
 import { inspectPosition, stakingAbi, type Position } from "./investments";
 import { inspectMamo, strategyAbi, type MamoPosition } from "./mamo";
-import { withdrawableHoldings, type BasketContents, type BasketHolding } from "./basket-contents";
+import { type BasketContents, type BasketHolding } from "./basket-contents";
 import { MAX_BATCH_CALLS } from "./multisend";
-import type { AccountSnapshot, Call, PreparedAction, Receive } from "./types";
+import type { AccountSnapshot, Call, PreparedAction, Receive, NftReceive } from "./types";
 
 // Selected assets of one network, as chosen in Prepare wallets. The planner
 // never adds anything that is not in this list.
@@ -45,10 +45,10 @@ export type EntryStatus = "included" | "individual" | "later" | "empty";
 //   shares:   the investment's transferable shares arrive (not redeemed)
 //   queued:   a card withdrawal request is created; funds arrive only after
 //             the contract waiting period and a later execution step
-export type Outcome = "received" | "shares" | "queued";
+export type Outcome = "received" | "shares" | "queued" | "basket";
 export type BatchEntry = {
   id: string; label: string; status: EntryStatus; outcome?: Outcome;
-  calls: Call[]; callLabels: string[]; receives: Receive[]; queued: { module: Address; txHash: Hex }[];
+  calls: Call[]; callLabels: string[]; receives: Receive[]; nfts?: NftReceive[]; queued: { module: Address; txHash: Hex }[];
   transferBlocked?: boolean; notes: string[]; later: string[]; gas: bigint; amounts: Record<string, bigint>;
 };
 export type BatchPlan = {
@@ -62,7 +62,6 @@ const GAS = { transfer: 70_000n, share: 90_000n, staking: 160_000n, mamo: 260_00
 export const PART_GAS_BUDGET = 8_000_000n;
 const ALL = 100_000n; // withdrawPortfolio share scale: 100000 = 100%
 
-const ethBalanceAbi = [{ type: "function", name: "getEthBalance", stateMutability: "view", inputs: [{ name: "addr", type: "address" }], outputs: [{ type: "uint256" }] }] as const;
 const word = (value: bigint) => getAddress(`0x${value.toString(16).padStart(40, "0").slice(-40)}`);
 
 export async function readBatchFacts(client: PublicClient, snapshot: AccountSnapshot, sources: readonly BatchSource[], multicall3?: Address): Promise<BatchFact[]> {
@@ -150,20 +149,19 @@ async function readBasketFacts(client: PublicClient, owner: Address, baskets: Ex
     const [ownerWord, walletWord] = [heads[i * 2], heads[i * 2 + 1]];
     return { basket: b, owned: ownerWord !== undefined && same(word(ownerWord), owner), wallet: walletWord !== undefined && walletWord !== 0n ? word(walletWord) : undefined };
   });
-  // Only contents previously identified for this exact wallet are re-read.
-  const reads = wallets.flatMap(w => !w.owned || !w.wallet ? [] : [
-    { basket: w.basket.id, key: "native", call: { target: multicall3, data: encodeFunctionData({ abi: ethBalanceAbi, functionName: "getEthBalance", args: [w.wallet] }) } },
-    ...(w.basket.contents && same(w.basket.contents.wallet ?? "", w.wallet) ? withdrawableHoldings(w.basket.contents) : [])
-      .map(h => ({ basket: w.basket.id, key: h.key, call: { target: h.token!, data: balanceOfData(w.wallet!) } })),
-  ]);
-  const values = await words(reads.map(r => r.call));
+  // BRL is the only asset withdrawn. Read it even if diagnosis missed its
+  // catalogue entry; unknown/locked assets stay inside the transferred NFT.
+  const reads = wallets.filter(w => w.owned && w.wallet);
+  const values = await words(reads.map(w => ({ target: BASKET_BRL, data: balanceOfData(w.wallet!) })));
   for (const { basket, owned, wallet } of wallets) {
-    const fresh = (key: string) => { const i = reads.findIndex(r => r.basket === basket.id && r.key === key); return i < 0 ? undefined : values[i]; };
+    const index = reads.findIndex(w => w.basket.id === basket.id);
+    const brl = index < 0 ? undefined : values[index];
     const contents = basket.contents && wallet && same(basket.contents.wallet ?? "", wallet) ? basket.contents : undefined;
-    out.set(basket.id, { id: basket.id, kind: "basket", label: basket.label, nftId: basket.nftId, owned, wallet, native: fresh("native") ?? 0n,
-      readFailed: !!owned && !!wallet && (fresh("native") === undefined || !!contents && withdrawableHoldings(contents).some(h => fresh(h.key) === undefined)),
-      tokens: (contents ? withdrawableHoldings(contents) : []).map(h => ({ ...h, fresh: fresh(h.key) ?? 0n })),
-      stakes: contents?.holdings.filter(h => h.category === "position") ?? [], contents: contents?.status, unread: contents ? contents.failed + (contents.total - contents.checked) + (contents.unreadable ?? 0) : undefined });
+    out.set(basket.id, { id: basket.id, kind: "basket", label: basket.label, nftId: basket.nftId, owned, wallet, native: 0n,
+      readFailed: !!owned && !!wallet && brl === undefined,
+      tokens: [{ key: `erc20:${BASKET_BRL.toLowerCase()}`, token: BASKET_BRL, category: "token", name: "Brilliant", symbol: "BRL", decimals: 18,
+        balance: brl ?? 0n, fresh: brl ?? 0n, assetIds: [], types: ["token"] }],
+      stakes: contents?.holdings.filter(h => h.category === "position") ?? [], contents: contents?.status });
   }
   return out;
 }
@@ -186,7 +184,7 @@ export function planBatch(options: { snapshot: AccountSnapshot; destination: str
   if ([...options.guardians ?? [], ...snapshot.recoveries.flatMap(r => r.guardians)].some(g => same(g, destination))) throw new Error("The destination is a recovery guardian of this account. Choose a wallet that is not a guardian");
   const unavailable = snapshot.version === "EOA" ? "eoa" as const : snapshot.warnings.some(w => w.includes("transactions disabled")) ? "unsupported" as const : !options.multisend ? "multisend" as const : undefined;
   const entries = facts.map(fact => planFact(fact, snapshot, destination));
-  if (unavailable) for (const e of entries) if (e.status === "included") Object.assign(e, { status: "individual", calls: [], callLabels: [], receives: [], queued: [], gas: 0n });
+  if (unavailable) for (const e of entries) if (e.status === "included") Object.assign(e, { status: "individual", calls: [], callLabels: [], receives: [], nfts: [], queued: [], gas: 0n });
   const parts: string[][] = [];
   let current: string[] = [], gas = 0n, calls = 0;
   const budget = options.budget ?? PART_GAS_BUDGET;
@@ -245,26 +243,25 @@ function planFact(fact: BatchFact, snapshot: AccountSnapshot, destination: Addre
     }
     case "basket": {
       if (!fact.owned || !fact.wallet) return entry(fact, { status: "individual", notes: ["Basket ownership or wallet could not be verified at the review block."] });
-      if (fact.readFailed) return entry(fact, { status: "individual", notes: ["The current balance of a basket asset could not be verified. It is unknown, not zero. Retry this network before migrating the basket."] });
-      const notes: string[] = [], later: string[] = [];
-      if (fact.contents !== "complete" || (fact.unread ?? 0) > 0) notes.push(fact.contents ? `Some balances could not be verified (${fact.unread ?? 0} catalogue checks): unread tokens stay in the basket.` : "Basket contents have not been read yet: only native POL can be included.");
-      notes.push("Only tokens in the bundled legacy catalogue are detected; others stay in the basket.");
-      if (fact.stakes.length) later.push(`${fact.stakes.length} protocol position(s) need an individual exit first: ${fact.stakes.map(s => s.symbol ?? s.name).join(", ")}.`);
-      const tokens = fact.tokens.filter(t => t.fresh > 0n);
-      if (!tokens.length && fact.native <= 0n) return entry(fact, { status: later.length ? "later" : "empty", notes, later });
-      // withdrawPortfolio pays the NFT owner (this Safe); the same Safe
-      // transaction then forwards exactly the basket amounts to the destination.
-      const withdraw: Call = { to: BASKET, value: 0n, data: encodeFunctionData({ abi: basketAbi, functionName: "withdrawPortfolio",
-        args: [fact.nftId, { tokens: tokens.map(t => t.token!), amounts: tokens.map(() => ALL) }, fact.native > 0n ? ALL : 0n, [], []] }) };
-      const forwards = tokens.map(t => transfer(t.token!, destination, t.fresh));
-      if (tokens.some(t => t.category === "receipt")) notes.push("Protocol receipt tokens are moved as-is; redeeming them is a separate step.");
-      return entry(fact, { outcome: "received", notes, later,
-        calls: [withdraw, ...forwards, ...fact.native > 0n ? [transfer(null, destination, fact.native)] : []],
-        callLabels: [`Withdraw basket #${fact.nftId} to the Safe`, ...tokens.map(t => `Forward ${t.symbol ?? t.name}`), ...fact.native > 0n ? ["Forward POL"] : []],
-        receives: [...tokens.map(t => ({ token: t.token!, recipient: destination, minimum: t.fresh })), ...fact.native > 0n ? [{ token: null, recipient: destination, minimum: fact.native }] : []],
-        gas: GAS.basket + BigInt(tokens.length) * (GAS.basketToken + GAS.transfer) + (fact.native > 0n ? GAS.transfer : 0n),
-        amounts: Object.fromEntries([...tokens.map(t => [`basket:${fact.nftId}:${t.token!.toLowerCase()}`, t.fresh]), ["basket:" + fact.nftId + ":native", fact.native]]) });
+      if (fact.readFailed) return entry(fact, { status: "individual", notes: ["The current BRL balance could not be verified. It is unknown, not zero. Retry this network before migrating the basket."] });
+      const brl = fact.tokens.find(t => same(t.token ?? "", BASKET_BRL))?.fresh ?? 0n;
+      const calls: Call[] = [], callLabels: string[] = [];
+      if (brl > 0n) {
+        calls.push({ to: BASKET, value: 0n, data: encodeFunctionData({ abi: basketAbi, functionName: "withdrawPortfolio",
+          args: [fact.nftId, { tokens: [BASKET_BRL], amounts: [ALL] }, 0n, [], []] }) }, transfer(BASKET_BRL, destination, brl));
+        callLabels.push(`Withdraw BRL from basket #${fact.nftId} to the Safe`, "Forward BRL to the destination");
+      }
+      // Move ownership last, atomically with the withdrawal and forwarding.
+      // Other tokens, native coin and protocol positions remain in the basket.
+      calls.push({ to: BASKET, value: 0n, data: encodeFunctionData({ abi: basketAbi, functionName: "safeTransferFrom", args: [safe, destination, fact.nftId] }) });
+      callLabels.push(`Transfer basket NFT #${fact.nftId} with its remaining contents`);
+      return entry(fact, { outcome: "basket", calls, callLabels,
+        receives: brl > 0n ? [{ token: BASKET_BRL, recipient: destination, minimum: brl }] : [],
+        nfts: [{ collection: BASKET, from: safe, recipient: destination, tokenId: fact.nftId }],
+        gas: GAS.basket + (brl > 0n ? GAS.basketToken + GAS.transfer : 0n),
+        amounts: brl > 0n ? { [`basket:${fact.nftId}:${BASKET_BRL.toLowerCase()}`]: brl } : {} });
     }
+
     case "card": {
       if (!fact.delay) return entry(fact, { status: "individual", notes: ["The card's v5 Delay controller link could not be verified at the review block."] });
       if (fact.delay.tail > fact.delay.head) return entry(fact, { status: "later", later: ["This card already has queued withdrawal requests. Complete or discard them before queuing another withdrawal, so the same balance is not requested twice."] });
@@ -298,7 +295,7 @@ export function batchPartAction(options: {
   const entries = ids.map(id => plan.entries.find(e => e.id === id)!);
   const calls = entries.flatMap(e => e.calls), labels = entries.flatMap(e => e.callLabels);
   const action = safeBatchAction(snapshot, plan.multisend, calls, labels, options.label);
-  return { ...action, receives: entries.flatMap(e => e.receives), queued: entries.flatMap(e => e.queued),
+  return { ...action, receives: entries.flatMap(e => e.receives), nfts: entries.flatMap(e => e.nfts ?? []), queued: entries.flatMap(e => e.queued),
     forbiddenRecipients: options.forbiddenRecipients,
     destinations: [plan.destination],
     details: entries.map(e => `${e.label}: ${e.outcome}`),
@@ -308,10 +305,11 @@ export function batchPartAction(options: {
       for (const e of entries) for (const [key, value] of Object.entries(e.amounts)) {
         if ((amounts[key] ?? 0n) < value) throw new Error("A balance changed since review. Review this network again");
       }
+      for (const id of ids) if (!fresh.some(f => f.id === id)) throw new Error("A selected asset could not be revalidated; review again");
       for (const f of fresh) {
         if (f.kind === "basket" && ids.includes(f.id)) {
           const old = plan.entries.find(e => e.id === f.id);
-          if (!f.owned || (old?.calls.length && !f.wallet)) throw new Error("Basket ownership changed; review again");
+          if (!f.owned || f.readFailed || (old?.calls.length && !f.wallet)) throw new Error("Basket ownership changed; review again");
         }
         if (f.kind === "card" && ids.includes(f.id) && !f.delay) throw new Error("Card controller changed; review again");
       }
