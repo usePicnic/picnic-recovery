@@ -22,7 +22,7 @@ import { chainOf, commitSelection, emptySelection, forAccount, isExcluded, migra
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
 import { RecoveryPanel } from "./components/RecoveryPanel";
 import { CardAssetForm } from "./components/CardAssetForm";
-import { AssetTable, ItemText } from "./components/AssetTable";
+import { ItemText } from "./components/AssetTable";
 import { useConnectedAccount } from "./components/useConnectedAccount";
 import { useDiagnosis, rpcFor, type RpcOverrides } from "./components/useDiagnosis";
 import { type NetworkDiagnosis, type TokenHolding } from "./core/diagnosis";
@@ -339,13 +339,6 @@ export function App() {
             onSubmitted={record} onConfirmed={(id, hash) => { confirmed(hash); diagnosis.rescan(id); }}
             openItem={item => { const result = diagnosis.results.find(r => r.chainId === item.chainId); if (result) openAsset(item, result); }}
             editSelection={() => { setActiveItem(undefined); goToStep(2); }} />}
-          {step === 3 && <section className="panel compact individual-withdrawals">
-            <p className="eyebrow">{t("ALTERNATIVA / UM ATIVO POR VEZ", "ALTERNATIVE / ONE ASSET AT A TIME")}</p>
-            <h3>{t("Ou retire individualmente", "Or withdraw individually")}</h3>
-            <p className="small">{t("Cada linha abre sua própria retirada, com revisão e transação separadas. Use para contas antigas sem Safe, itens que exigem etapas no protocolo, pedidos do cartão e resgates em andamento.", "Each row opens its own withdrawal with a separate review and transaction. Use it for legacy accounts without a Safe, items needing protocol steps, card requests and redemptions in progress.")}</p>
-            <AssetTable lang={lang} busy={busy} ready={diagnosis.results.length > 0} results={diagnosis.results} custom={diagnosis.customTokens} selected={chosen} baskets={baskets}
-              open={openDiagnosis} openItem={openAsset} addCustom={diagnosis.addCustomToken} removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} />
-          </section>}
           {step === 3 && activeItem && <section className="panel compact active-asset"><div className="network-cell"><ChainLogo id={activeItem.chainId} /><ItemText item={activeItem} lang={lang} /></div><button className="text-button" disabled={busy} onClick={() => { setActiveItem(undefined); setReview(undefined); setReviewed(false); }}>{t("Fechar detalhes", "Close details")}</button></section>}
           {step === 3 && activeItem && (tab === "transfer" || tab === "card") && <section className="panel">
             <p className="eyebrow">{tab === "card" ? t("CARTÃO", "CARD") : t("SALDO E TOKENS", "BALANCE AND TOKENS")}</p><h2>{tab === "card" ? t("Retire o saldo do cartão.", "Withdraw card funds.") : t("Escolha o destino dos seus ativos.", "Choose where your assets go.")}</h2>

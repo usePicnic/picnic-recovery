@@ -187,5 +187,4 @@
 .batch-later ul{margin:8px 0 0;padding-left:18px}.batch-later .batch-entries{padding-left:0}
 .batch-actions{margin-top:14px}.batch-actions .checkbox{margin:14px 0}
 .break{word-break:break-all;max-height:140px;overflow:auto;background:#EFF1EE;padding:8px;border-radius:4px}
-.individual-withdrawals h3{margin-bottom:4px}
 @media(max-width:640px){.batch-step{padding:14px}.batch-step.current{padding:13px}.batch-destination{flex-direction:column;align-items:flex-start}.batch-facts{grid-template-columns:1fr;gap:2px}.batch-facts dd{margin-bottom:8px}.batch-actions .row button{flex:1 1 100%}.migration-assets li>.basket-contents,.migration-assets li>.basket-status{padding-left:0}}
