@@ -177,7 +177,7 @@ function FeeLine({ chainId, state, entry, wallet, busy, lang, retry, connect }: 
   const balance = entry?.status === "ready" && entry.balance !== undefined ? `${formatUnits(entry.balance, chain.nativeCurrency.decimals)} ${symbol}` : undefined;
   return <div className={`migration-fee ${state}`}>
     {state === "ready" && <p>{t("Saldo para taxas", "Fee balance")}: <strong>{balance}</strong> <span className="muted">· {t("bloco", "block")} {entry?.block?.toString()}</span></p>}
-    {state === "fund" && <p>{t(`Envie ${symbol} na rede ${chain.name} para a carteira conectada. Tokens e saldo em outra rede não pagam estas taxas.`, `Send ${symbol} on ${chain.name} to the connected wallet. Tokens and balances on another network do not pay these fees.`)} <span className="muted">({t("bloco", "block")} {entry?.block?.toString()})</span></p>}
+    {state === "fund" && <p>{t(`Envie ${symbol} na rede ${chain.name} para:`, `Send ${symbol} on ${chain.name} to:`)} <span className="mono">{wallet}</span> <span className="muted">({t("bloco", "block")} {entry?.block?.toString()})</span></p>}
     {state === "gas-loading" && <p className="muted">{t(`Lendo o saldo de ${symbol} da carteira conectada…`, `Reading the connected wallet's ${symbol} balance…`)}</p>}
     {state === "gas-error" && <p>{t("A rede não respondeu. O saldo para taxas é desconhecido.", "The network did not answer. The fee balance is unknown.")}</p>}
     {state === "owner" && <p>{t("Conecte uma carteira owner desta conta no passo 0, ou desmarque esta rede.", "Connect an owner wallet of this account in step 0, or untick this network.")} <button className="text-button" disabled={busy} onClick={connect}>{t("Ir para a conexão →", "Go to connection →")}</button></p>}
