@@ -4,7 +4,7 @@ import { chainById, chains } from "../catalog/chains";
 import { publicClient, same } from "../core/client";
 import { inspectAccount } from "../core/inspect";
 import { approveSafeProposal, safeHash, sendAction } from "../core/actions";
-import { batchPartAction, includedEntries, planBatch, readBatchFacts, screenTokenTransfers, type BatchEntry, type BatchPlan } from "../core/batch";
+import { batchPartAction, includedEntries, planBatch, readBatchFacts, screenAssetTransfers, type BatchEntry, type BatchPlan } from "../core/batch";
 import { approvedMultiSend, findMultiSend } from "../core/multisend";
 import { destinationError } from "../core/destination";
 import type { ReceiptExpectation } from "../core/receipts";
@@ -28,7 +28,7 @@ type Props = {
   baskets: BasketContentsState; onSubmitted: (record: SubmittedRecord) => void; onConfirmed: (chainId: number, hash: Hex) => void;
   select?: (ids: string[], value: boolean) => void; openItem: (item: MigrationItem) => void; editSelection: () => void;
 };
-type Stage = "reading" | "wallet" | "network" | "validation" | "simulation" | "signature" | "transaction" | "receipt";
+type Stage = "reading" | "screening" | "wallet" | "network" | "validation" | "simulation" | "signature" | "transaction" | "receipt";
 type ChainState = {
   status: "idle" | "reading" | "ready" | "sending" | "error";
   // The reviewed plan, valid only for the context key it was read under.
@@ -119,7 +119,8 @@ export function BatchMigration(props: Props) {
         const facts = await readBatchFacts(client, snapshot, sources, multicall);
         // Validate destination/account constraints before probing any transfer.
         const initial = planBatch({ snapshot, destination, facts, multisend, guardians });
-        const checked = initial.unavailable ? facts : await screenTokenTransfers(client, snapshot, facts, initial.destination, wallet);
+        patch(chainId, { stage: "screening" });
+        const checked = initial.unavailable ? facts : await screenAssetTransfers(client, snapshot, facts, initial.destination, wallet, multisend);
         const plan = planBatch({ snapshot, destination, facts: checked, multisend, guardians });
         const included = includedEntries(plan, 0), sent = entry(chainId).sent;
         let action: PreparedAction | undefined, safeTxHash: Hex | undefined;
@@ -180,6 +181,7 @@ export function BatchMigration(props: Props) {
 
   const stageText: Record<Stage, string> = {
     reading: t("Lendo saldos atuais na rede…", "Reading current balances on-chain…"),
+    screening: t("Simulando a migração de cada ativo…", "Simulating each asset migration…"),
     wallet: t("Conectando à carteira selecionada…", "Connecting to the selected wallet…"),
     network: t("Confirme a troca de rede na sua carteira…", "Confirm the network switch in your wallet…"),
     validation: t("Validando permissões e saldos…", "Validating permissions and balances…"),
@@ -191,8 +193,8 @@ export function BatchMigration(props: Props) {
   return <section className="panel batch" aria-labelledby="batch-title">
     <p className="eyebrow">{t("PASSO 2 / MOVER O DINHEIRO", "STEP 2 / MOVE FUNDS")}</p>
     <h2 id="batch-title">{t("Migre por rede, em uma transação.", "Move each network in one transaction.")}</h2>
-    <p>{t("Em cada rede, os ativos selecionados são agrupados em uma única transação da Safe. Antes do envio, a transação inteira é simulada; se a simulação falhar, nada é enviado. Depois da confirmação, o recibo é conferido item por item. Clique em migrar e confirme na sua carteira; nada é enviado sozinho.",
-      "On each network, the selected assets are grouped into a single Safe transaction. Before sending, the whole transaction is simulated; if the simulation fails, nothing is sent. After confirmation, the receipt is checked item by item. Click migrate and confirm in your wallet; nothing is sent on its own.")}</p>
+    <p>{t("Simulamos a migração de cada ativo. Os que falharem ficam como pendência; os demais são agrupados em uma transação da Safe por rede. Antes do envio, a transação inteira é simulada; se a simulação falhar, nada é enviado. Depois da confirmação, o recibo é conferido item por item. Clique em migrar e confirme na sua carteira; nada é enviado sozinho.",
+      "We simulate each asset migration. Assets that fail stay pending; the others are grouped into one Safe transaction per network. Before sending, the whole transaction is simulated; if the simulation fails, nothing is sent. After confirmation, the receipt is checked item by item. Click migrate and confirm in your wallet; nothing is sent on its own.")}</p>
     <div className="batch-destination">
       <div><span className="small muted">{t("Destino em todas as redes", "Destination on every network")}</span><p className="mono">{destination || "—"}</p></div>
       <button type="button" className="text-button" disabled={busy} onClick={props.editSelection}>{t("Editar seleção ou destino", "Edit selection or destination")}</button>
@@ -251,7 +253,7 @@ export function BlockedTransfers({ plan, lang }: { plan: BatchPlan; lang: Lang }
   const blocked = plan.entries.filter(entry => entry.transferBlocked);
   if (!blocked.length) return null;
   return <div className="batch-blocked-transfers migration-error" role="alert">
-    <strong>{lang === "pt" ? "Estes tokens não entram na migração" : "These tokens are not included in the migration"}</strong>
+    <strong>{lang === "pt" ? "Estes ativos não entram na migração" : "These assets are not included in the migration"}</strong>
     <p className="small">{lang === "pt" ? "A transferência falhou na simulação. O saldo permanece na conta de origem; os demais ativos podem ser migrados." : "The transfer failed in simulation. The balance remains in the source account; the other assets can be migrated."}</p>
     <ul>{blocked.map(entry => <li key={entry.id}>{entry.label}</li>)}</ul>
   </div>;

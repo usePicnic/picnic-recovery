@@ -27,16 +27,17 @@ export type BatchSource =
 // Fresh on-chain state for each source, read at one block immediately
 // before review. `amounts` are what the planned calls rely on; revalidation
 // requires each to be unchanged or larger before sending.
-export type BatchFact =
+export type BatchFact = (
   | { id: string; kind: "native"; label: string; balance: bigint }
-  | { id: string; kind: "token"; label: string; token: Address; balance: bigint; decimals?: number; symbol?: string; transferBlocked?: boolean }
+  | { id: string; kind: "token"; label: string; token: Address; balance: bigint; decimals?: number; symbol?: string }
   | { id: string; kind: "position"; label: string; position: Position }
   | { id: string; kind: "mamo"; label: string; mamo: MamoPosition }
   | { id: string; kind: "basket"; label: string; nftId: bigint; owned: boolean; wallet?: Address; tokens: (BasketHolding & { fresh: bigint })[]; native: bigint;
       stakes: BasketHolding[]; contents?: BasketContents["status"]; unread?: number; readFailed?: boolean }
   | { id: string; kind: "card"; label: string; delay?: CardDelay; asset: Address | "native"; balance: bigint; card: Address }
   | { id: string; kind: "card-queue"; label: string; delay: CardDelay }
-  | { id: string; kind: "unidentified"; label: string };
+  | { id: string; kind: "unidentified"; label: string }
+) & { transferBlocked?: boolean };
 
 export type EntryStatus = "included" | "individual" | "later" | "empty";
 // What happens to one selected asset in this batch, stated plainly.
@@ -94,31 +95,36 @@ export async function readBatchFacts(client: PublicClient, snapshot: AccountSnap
   }
   return facts;
 }
-// Probe ordinary token transfers through the actual Safe, with the same sender
-// and block as the plan. A valid balance does not imply transferability (e.g.
-// locked airdrops). Only GS013 proves an inner-call failure: RPC errors and Safe
-// authorization errors abort preparation, never turn into excluded assets.
-// Multisig proposals retain the existing full-transaction approval/simulation path.
-export async function screenTokenTransfers(client: PublicClient, snapshot: AccountSnapshot, facts: readonly BatchFact[], destination: Address, sender?: Address): Promise<BatchFact[]> {
+// Simulate one complete asset route at a time, through the actual Safe and
+// sender. Dependent calls (withdraw + forward, enqueue a card withdrawal) stay
+// together. Only a GS013 inner-call failure excludes that route; RPC and Safe
+// authorization errors abort preparation. The complete filtered batch is still
+// simulated before sending. Multisig keeps its existing approval/simulation path.
+export async function screenAssetTransfers(client: PublicClient, snapshot: AccountSnapshot, facts: readonly BatchFact[], destination: Address, sender?: Address, multisend?: Address): Promise<BatchFact[]> {
   if (snapshot.version === "EOA" || snapshot.threshold !== 1n || !sender || !snapshot.owners.some(owner => same(owner, sender))) return [...facts];
-  const checked: BatchFact[] = [];
-  for (const fact of facts) {
-    if (fact.kind !== "token" || fact.balance <= 0n) { checked.push(fact); continue; }
-    const data = encodeFunctionData({ abi: safeAbi, functionName: "execTransaction", args: [fact.token, 0n,
-      encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [destination, fact.balance] }),
-      0, 0n, 0n, 0n, zeroAddress, zeroAddress, prevalidatedSignature(sender)] });
+  const check = async (fact: BatchFact): Promise<BatchFact> => {
+    const fresh = { ...fact, transferBlocked: false };
+    const planned = planFact(fresh, snapshot, destination);
+    if (planned.status !== "included") return fresh;
+    if (planned.calls.length > 1 && !multisend) throw new Error("A verified MultiSend is required to simulate this asset route");
+    const action = safeBatchAction(snapshot, multisend ?? zeroAddress, planned.calls, planned.callLabels, planned.label);
+    const data = encodeFunctionData({ abi: safeAbi, functionName: "execTransaction", args: [action.call.to, action.call.value, action.call.data,
+      action.operation ?? 0, 0n, 0n, 0n, zeroAddress, zeroAddress, prevalidatedSignature(sender)] });
     try {
       await client.call({ account: sender, to: snapshot.address, data, blockNumber: snapshot.block });
-      checked.push({ ...fact, transferBlocked: false });
+      return fresh;
     } catch (error) {
       const failures: unknown[] = [];
       if (error instanceof BaseError) error.walk(cause => { failures.push(cause); return false; });
       else failures.push(error);
       const reverted = failures.some(cause => /\bGS013\b/.test(cause instanceof Error ? cause.message : String(cause)));
       if (!reverted) throw error;
-      checked.push({ ...fact, transferBlocked: true });
+      return { ...fact, transferBlocked: true };
     }
-  }
+  };
+  const checked: BatchFact[] = [];
+  // Small bounded groups avoid flooding public RPCs when many baskets exist.
+  for (let i = 0; i < facts.length; i += 3) checked.push(...await Promise.all(facts.slice(i, i + 3).map(check)));
   return checked;
 }
 
@@ -194,6 +200,8 @@ export function planBatch(options: { snapshot: AccountSnapshot; destination: str
 
 function planFact(fact: BatchFact, snapshot: AccountSnapshot, destination: Address): BatchEntry {
   const safe = snapshot.address;
+  if (fact.transferBlocked) return entry(fact, { status: "individual", transferBlocked: true,
+    notes: ["This asset route reverted when simulated through this Safe with the selected destination. It is excluded from this batch, not recorded as migrated. Its balance remains at the source. Dependent calls are simulated together."] });
   switch (fact.kind) {
     case "native": {
       if (fact.balance <= 0n) return entry(fact, { status: "empty" });
@@ -203,8 +211,7 @@ function planFact(fact: BatchFact, snapshot: AccountSnapshot, destination: Addre
     }
     case "token": {
       if (fact.balance <= 0n) return entry(fact, { status: "empty" });
-      if (fact.transferBlocked) return entry(fact, { status: "individual", transferBlocked: true,
-        notes: ["This token transfer reverted when simulated through this Safe with the selected destination. It is excluded from this batch, not recorded as migrated. Its balance remains in the source account."] });
+
       return entry(fact, { outcome: "received", calls: [transfer(fact.token, destination, fact.balance)], callLabels: [`Transfer ${fact.label}`],
         receives: [{ token: fact.token, recipient: destination, minimum: fact.balance }], gas: GAS.transfer, amounts: { [`safe:${fact.token.toLowerCase()}`]: fact.balance } });
     }

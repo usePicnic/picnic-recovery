@@ -10,7 +10,7 @@ import multiSendArtifact from "./fixtures/MultiSendCallOnly.json";
 import { inspectAccount } from "../src/core/inspect";
 import { erc20Abi, safeAbi } from "../src/core/abi";
 import { sendAction, approveSafeProposal, safeHash, safeTypes, safeBatchAction, transferCall } from "../src/core/actions";
-import { batchPartAction, planBatch, readBatchFacts, screenTokenTransfers, type BatchSource } from "../src/core/batch";
+import { batchPartAction, planBatch, readBatchFacts, screenAssetTransfers, type BatchSource } from "../src/core/batch";
 import { findMultiSend } from "../src/core/multisend";
 import { verifyReceipt, type ReceiptExpectation } from "../src/core/receipts";
 import { parseProgress } from "../src/core/progress";
@@ -135,7 +135,7 @@ describe("Safe batch migration through the canonical MultiSendCallOnly runtime",
       await expect(sendAction(client, provider(0, true), unscreened, () => {})).rejects.toThrow(/GS013/);
       expect(methods.filter(m => m === "eth_sendTransaction")).toHaveLength(0);
       const facts = await readBatchFacts(client, snapshot, sources().slice(1));
-      const checked = await screenTokenTransfers(client, snapshot, facts, destination, accounts[0]);
+      const checked = await screenAssetTransfers(client, snapshot, facts, destination, accounts[0]);
       const plan = planBatch({ snapshot, destination, facts: checked, multisend: MS141 });
       expect(plan.parts).toEqual([["100:token:a"]]);
       expect(plan.entries[1]).toMatchObject({ transferBlocked: true, status: "individual" });

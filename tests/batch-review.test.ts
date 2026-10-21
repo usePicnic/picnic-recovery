@@ -3,7 +3,7 @@ import { decodeFunctionData, encodeAbiParameters, zeroAddress, type Address, typ
 import { polygon } from "viem/chains";
 import { destinationError, assertSeparateRecipient } from "../src/core/destination";
 import { assertAllowedRecipients, connectedWallet } from "../src/core/actions";
-import { readBatchFacts, screenTokenTransfers, planBatch, batchPartAction, type BatchFact } from "../src/core/batch";
+import { readBatchFacts, screenAssetTransfers, planBatch, batchPartAction, type BatchFact } from "../src/core/batch";
 import type { BasketContents } from "../src/core/basket-contents";
 import type { AccountSnapshot, PreparedAction } from "../src/core/types";
 
@@ -86,11 +86,12 @@ describe("nontransferable tokens in a network batch", () => {
       const execution = decodeFunctionData({ abi: safeAbi, data: call.data });
       expect(execution.functionName).toBe("execTransaction");
       const args = execution.args as readonly unknown[];
+      if (args[0] === recipient) return { data: "0x" };
       expect(args[0]).toBe(token);
       expect(decodeFunctionData({ abi: erc20Abi, data: args[2] as `0x${string}` }).args).toEqual([recipient, 10n]);
       throw new Error("Execution reverted with reason: GS013");
     } } as unknown as PublicClient;
-    const checked = await screenTokenTransfers(client, snapshot, facts, recipient, wallet);
+    const checked = await screenAssetTransfers(client, snapshot, facts, recipient, wallet);
     const plan = planBatch({ snapshot, destination: recipient, facts: checked, multisend });
     expect(plan.parts).toEqual([["native"]]);
     expect(plan.entries[0]).toMatchObject({ status: "individual", transferBlocked: true, calls: [], receives: [] });
@@ -101,17 +102,77 @@ describe("nontransferable tokens in a network batch", () => {
     const facts: BatchFact[] = [{ id: "t", kind: "token", label: "T", token, balance: 10n }];
     for (const error of ["RPC timeout", "execution reverted GS026", "out of gas"]) {
       const client = { call: async () => { throw new Error(error); } } as unknown as PublicClient;
-      await expect(screenTokenTransfers(client, snapshot, facts, recipient, wallet)).rejects.toThrow(error);
+      await expect(screenAssetTransfers(client, snapshot, facts, recipient, wallet)).rejects.toThrow(error);
     }
   });
   it("does not reuse blocked status when a fresh transfer succeeds or simulate an unauthorized multisig executor", async () => {
     let calls = 0;
     const client = { call: async () => { calls++; return { data: "0x" }; } } as unknown as PublicClient;
     const facts: BatchFact[] = [{ id: "t", kind: "token", label: "T", token, balance: 10n, transferBlocked: true }];
-    expect((await screenTokenTransfers(client, snapshot, facts, recipient, wallet))[0]).toMatchObject({ transferBlocked: false });
-    await screenTokenTransfers(client, { ...snapshot, threshold: 2n }, facts, recipient, wallet);
-    await screenTokenTransfers(client, snapshot, facts, recipient, recipient);
+    expect((await screenAssetTransfers(client, snapshot, facts, recipient, wallet))[0]).toMatchObject({ transferBlocked: false });
+    await screenAssetTransfers(client, { ...snapshot, threshold: 2n }, facts, recipient, wallet);
+    await screenAssetTransfers(client, snapshot, facts, recipient, recipient);
     expect(calls).toBe(1);
     expect(displayError(new Error("Execution reverted with reason: GS013"), "pt")).toContain("transferência pode estar bloqueada");
   });
+});
+
+
+it("simulates the whole basket route together and excludes it without losing the valid native/card routes", async () => {
+  const { safeAbi } = await import("../src/core/abi");
+  const { multiSendAbi, unpackMultiSend } = await import("../src/core/multisend");
+  const { BASKET, basketAbi } = await import("../src/core/legacy");
+  const facts: BatchFact[] = [
+    { id: "basket", kind: "basket", label: "Basket #1", nftId: 1n, owned: true, wallet, tokens: [{ ...contents.holdings[0], fresh: 20n }], native: 0n, stakes: [], contents: "complete" },
+    { id: "native", kind: "native", label: "POL", balance: 5n }, card,
+    { id: "empty", kind: "token", label: "Empty", token, balance: 0n },
+    { id: "unknown", kind: "unidentified", label: "Unknown" },
+  ];
+  let calls = 0;
+  const client = { call: async ({ data }: { data: `0x${string}` }) => {
+    calls++;
+    const execution = decodeFunctionData({ abi: safeAbi, data });
+    const args = execution.args as readonly unknown[];
+    if (args[3] === 1) {
+      const packed = decodeFunctionData({ abi: multiSendAbi, data: args[2] as `0x${string}` });
+      const children = unpackMultiSend(packed.args[0]);
+      expect(children).toHaveLength(2); expect(children[0].to).toBe(BASKET);
+      expect(decodeFunctionData({ abi: basketAbi, data: children[0].data }).functionName).toBe("withdrawPortfolio");
+      expect(children[1].to).toBe(token);
+      throw new Error("Execution reverted GS013");
+    }
+    return { data: "0x" };
+  } } as unknown as PublicClient;
+  const checked = await screenAssetTransfers(client, snapshot, facts, recipient, wallet, multisend);
+  expect(calls).toBe(3);
+  const plan = planBatch({ snapshot, destination: recipient, facts: checked, multisend });
+  expect(plan.parts).toEqual([["native", "card"]]);
+  expect(plan.entries[0]).toMatchObject({ transferBlocked: true, calls: [], receives: [] });
+  expect(plan.entries[2]).toMatchObject({ outcome: "queued", status: "included" });
+  expect(plan.entries[4].status).toBe("individual");
+});
+
+it("screens investment shares, unstaking and strategy withdrawals, keeping their dependent calls atomic", async () => {
+  const { safeAbi } = await import("../src/core/abi");
+  const { multiSendAbi, unpackMultiSend } = await import("../src/core/multisend");
+  const product = { id: "position", chainId: 137, name: "Position", address: token, source: "fixture" };
+  const facts: BatchFact[] = [
+    { id: "shares", kind: "position", label: "Shares", position: { product: { ...product, kind: "erc4626" }, balance: 5n, decimals: 6 } },
+    { id: "stake", kind: "position", label: "Stake", position: { product: { ...product, kind: "staking" }, asset: token, balance: 7n, decimals: 6 } },
+    { id: "mamo", kind: "mamo", label: "Strategy", mamo: { address: token, owner: safe, token, staking: wallet, balance: 9n, decimals: 6 } },
+    { id: "native", kind: "native", label: "POL", balance: 2n },
+  ];
+  const lengths: number[] = [];
+  const client = { call: async ({ data }: { data: `0x${string}` }) => {
+    const execution = decodeFunctionData({ abi: safeAbi, data });
+    const args = execution.args as readonly unknown[];
+    lengths.push(args[3] === 1 ? unpackMultiSend(decodeFunctionData({ abi: multiSendAbi, data: args[2] as `0x${string}` }).args[0]).length : 1);
+    throw new Error("Execution reverted GS013");
+  } } as unknown as PublicClient;
+  const checked = await screenAssetTransfers(client, snapshot, facts, recipient, wallet, multisend);
+  expect(lengths.sort()).toEqual([1, 1, 2, 2]);
+  expect(checked.every(fact => fact.transferBlocked)).toBe(true);
+  const plan = planBatch({ snapshot, destination: recipient, facts: checked, multisend });
+  expect(plan.parts).toEqual([]);
+  expect(plan.entries.every(entry => entry.status === "individual" && entry.calls.length === 0)).toBe(true);
 });
