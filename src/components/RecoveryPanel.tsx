@@ -28,7 +28,7 @@ export function RecoveryPanel({ snapshot, wallet, lang, busy, owner, setOwner, n
         <strong>{t("Recuperação em andamento", "Recovery in progress")}</strong>
         <p className="small">{t("Novo owner", "New owner")}: <span className="mono">{r.pending.newOwners.join(", ")}</span></p>
         <p className="small">{t("Finalização a partir de", "Earliest finalization")}: {new Date(Number(r.pending.executeAfter) * 1000).toLocaleString(lang)}</p>
-        <div className="row"><button disabled={busy || snapshot.timestamp < r.pending.executeAfter} onClick={() => review(r.module, "finalize")}>{t("Revisar finalização", "Review finalization")}</button>
+        <div className="row"><button disabled={busy || snapshot.timestamp < r.pending.executeAfter} onClick={() => review(r.module, "finalize")}>{t("Finalizar na carteira", "Finalize in wallet")}</button>
           <button className="outline" disabled={busy} onClick={() => review(r.module, "cancel")}>{t("Cancelar com owner atual", "Cancel with current owner")}</button></div>
       </> : <>
         <label className="field"><span>{t("Nova carteira que você controla", "New wallet you control")}</span><input disabled={busy} value={owner} onChange={event => setOwner(event.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off"
@@ -38,7 +38,7 @@ export function RecoveryPanel({ snapshot, wallet, lang, busy, owner, setOwner, n
           : ownerProblem === "source" ? t("Este é o endereço da própria Safe. Informe a nova carteira owner.", "This is the Safe's own address. Enter the new owner wallet.")
           : t("Informe um endereço válido (0x…).", "Enter a valid address (0x…).")}</p>}
         <p className="small muted">{t("A nova carteira deve ser diferente dos guardiões. A assinatura autoriza a troca de controle da Safe.", "The new wallet must differ from the guardians. The signature authorizes a change of Safe control.")}</p>
-        <div className="row"><button disabled={busy || !owner.trim() || !!ownerProblem} onClick={() => review(r.module, "approve")}>{t("Revisar aprovação", "Review approval")}</button>
+        <div className="row"><button disabled={busy || !owner.trim() || !!ownerProblem} onClick={() => review(r.module, "approve")}>{t("Aprovar na carteira", "Approve in wallet")}</button>
           <button className="outline" disabled={busy || !owner.trim() || !!ownerProblem} onClick={() => review(r.module, "start")}>{t("Iniciar após aprovações", "Start after approvals")}</button></div>
       </>}
     </div>)}

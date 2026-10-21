@@ -6,7 +6,7 @@ import { legacyCatalogue, resolveLegacyAsset, legacyBalance, exitLegacyBasket, u
 import type { AccountSnapshot, PreparedAction } from "../core/types";
 
 type Props = { contents?: ReactNode; initialNft?: bigint; client?: PublicClient; snapshot?: AccountSnapshot; busy: boolean; lang: "pt" | "en";
-  run: (task: () => Promise<void>) => Promise<void>; review: (action: PreparedAction) => void; invalidate: () => void };
+  run: (task: () => Promise<void>) => Promise<void>; review: (action: PreparedAction) => Promise<void>; invalidate: () => void };
 export function LegacyPanel({ contents, initialNft, client, snapshot, busy, lang, run, review, invalidate }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [nft, setNft] = useState(initialNft?.toString() ?? "");
@@ -54,19 +54,19 @@ export function LegacyPanel({ contents, initialNft, client, snapshot, busy, lang
         <p className="small">{t("Ativos de saída", "Output assets")}: {catalogue && outputDescription(catalogue, selected)}</p>
         <label className="field"><span>{t("Mínimos de saída para pools, separados por vírgula (unidades brutas; Gamma: 4 limites)", "Pool minimum outputs, comma separated (raw units; Gamma: 4 limits)")}</span><input disabled={busy} value={minimums} onChange={e => setMinimums(e.target.value)} placeholder="1000000,1000000000000000" /></label>
         <div className="row"><button disabled={busy || balance === undefined || balance <= 0n} onClick={() => run(async () => {
-          const c = context(); review(await exitLegacyBasket(c.client, c.snapshot, BigInt(nft), selected, minimums.trim() ? minimums.split(",").map(s => BigInt(s.trim())) : []));
-        })}>{t("Revisar saída do protocolo", "Review protocol exit")}</button>
+          const c = context(); await review(await exitLegacyBasket(c.client, c.snapshot, BigInt(nft), selected, minimums.trim() ? minimums.split(",").map(s => BigInt(s.trim())) : []));
+        })}>{t("Sair do protocolo na carteira", "Exit protocol in wallet")}</button>
         <button className="outline" disabled={busy} onClick={() => run(async () => {
-          const c = context(); review(selected.type === "networkToken" ? await withdrawBasketNative(c.client, c.snapshot, BigInt(nft)) : await withdrawBasketToken(c.client, c.snapshot, BigInt(nft), selected.address));
+          const c = context(); await review(selected.type === "networkToken" ? await withdrawBasketNative(c.client, c.snapshot, BigInt(nft)) : await withdrawBasketToken(c.client, c.snapshot, BigInt(nft), selected.address));
         })}>{t("Retirar apenas token/recibo", "Withdraw token/receipt only")}</button></div>
         {selected.type === "ITetuDeposit" && <button className="text-button" disabled={busy} onClick={() => run(async () => {
           const c = context(); const shares = await legacyBalance(c.client, c.snapshot.address, selected);
-          review(await withdrawTetu(c.client, c.snapshot, selected, shares));
+          await review(await withdrawTetu(c.client, c.snapshot, selected, shares));
         })}>{t("Após retirar o recibo: resgatar Tetu na Safe", "After withdrawing receipt: redeem Tetu from Safe")}</button>}
       </>}
       <details><summary>{t("Retirar token por endereço", "Withdraw token by address")}</summary>
         <label className="field"><span>ERC-20</span><input disabled={busy} value={manualToken} onChange={e => setManualToken(e.target.value)} placeholder="0x…" /></label>
-        <button disabled={busy || !manualToken} onClick={() => run(async () => { const c = context(); review(await withdrawBasketToken(c.client, c.snapshot, BigInt(nft), manualToken)); })}>{t("Revisar retirada", "Review withdrawal")}</button>
+        <button disabled={busy || !manualToken} onClick={() => run(async () => { const c = context(); await review(await withdrawBasketToken(c.client, c.snapshot, BigInt(nft), manualToken)); })}>{t("Retirar na carteira", "Withdraw in wallet")}</button>
       </details>
     </>}
   </section>;

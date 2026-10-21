@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { encodeAbiParameters, zeroAddress, type Address, type PublicClient } from "viem";
+import { encodeAbiParameters, zeroAddress, type Address, type PublicClient, type EIP1193Provider } from "viem";
 import { polygon } from "viem/chains";
 import { destinationError, assertSeparateRecipient } from "../src/core/destination";
-import { assertAllowedRecipients } from "../src/core/actions";
+import { assertAllowedRecipients, connectedWallet } from "../src/core/actions";
 import { readBatchFacts, planBatch, batchPartAction, type BatchFact } from "../src/core/batch";
 import type { BasketContents } from "../src/core/basket-contents";
 import type { AccountSnapshot, PreparedAction } from "../src/core/types";
@@ -51,4 +51,27 @@ import { displayError } from "../src/core/errors";
 it("shows wallet rejection without dumping calldata", () => {
   expect(displayError({ shortMessage: "Rejected", cause: { code: 4001 } }, "pt")).toContain("Você recusou");
   expect(displayError({ shortMessage: "Insufficient funds", message: "full calldata" }, "en")).toBe("Insufficient funds");
+});
+
+
+describe("selected wallet session", () => {
+  it("reuses account access and reports the network-switch step without requesting permission again", async () => {
+    const calls: string[] = [], stages: string[] = [];
+    let chain = 1;
+    const provider = { request: async ({ method }: { method: string }) => {
+      calls.push(method);
+      if (method === "eth_accounts") return [wallet];
+      if (method === "eth_chainId") return `0x${chain.toString(16)}`;
+      if (method === "wallet_switchEthereumChain") { chain = 137; return null; }
+      throw new Error(`Unexpected permission request: ${method}`);
+    } } as EIP1193Provider;
+    expect((await connectedWallet(provider, 137, stage => stages.push(stage))).sender.toLowerCase()).toBe(wallet.toLowerCase());
+    expect(calls).not.toContain("eth_requestAccounts");
+    expect(stages).toEqual(["wallet", "network"]);
+  });
+  it("reports a locked/disconnected selected wallet without choosing another provider", async () => {
+    const provider = { request: async () => [] } as unknown as EIP1193Provider;
+    await expect(connectedWallet(provider, 137)).rejects.toThrow(/disconnected or locked/);
+    expect(displayError({ cause: { code: -32002 } }, "pt")).toContain("Abra a extensão");
+  });
 });

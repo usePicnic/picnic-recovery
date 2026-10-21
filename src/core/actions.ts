@@ -115,11 +115,14 @@ export const recoveryTypes = {
     { name: "newThreshold", type: "uint256" }, { name: "nonce", type: "uint256" },
   ],
 } as const;
-export async function connectedWallet(provider: EIP1193Provider, chainId: number) {
-  const wallet = createWalletClient({ transport: custom(provider) });
-  const accounts = await wallet.requestAddresses();
-  if (!accounts[0]) throw new Error("Connect a wallet");
+export async function connectedWallet(provider: EIP1193Provider, chainId: number, progress?: (stage: "wallet" | "network") => void) {
+  progress?.("wallet");
+  const wallet = createWalletClient({ transport: custom(provider, { retryCount: 0 }) });
+  // Connection is already authorized in step 0. Do not request permission again.
+  const accounts = await wallet.getAddresses();
+  if (!accounts[0]) throw new Error("The selected wallet is disconnected or locked. Reconnect it in Diagnosis");
   if (await wallet.getChainId() !== chainId) {
+    progress?.("network");
     await wallet.switchChain({ id: chainId });
     if (await wallet.getChainId() !== chainId) throw new Error("Wallet is on a different network");
   }
@@ -175,7 +178,7 @@ function balanceEffects(action: PreparedAction) {
   }
   return [...map.values()];
 }
-export type SendHooks = { onSubmitted: (hash: Hex, expectation?: ReceiptExpectation) => void; onSigning?: (stage: "signature" | "transaction") => void };
+export type SendHooks = { onSubmitted: (hash: Hex, expectation?: ReceiptExpectation) => void; onSigning?: (stage: "wallet" | "network" | "validation" | "simulation" | "signature" | "transaction") => void };
 export async function sendAction(
   client: PublicClient, provider: EIP1193Provider, action: PreparedAction,
   hooks: SendHooks["onSubmitted"] | SendHooks,
@@ -183,7 +186,8 @@ export async function sendAction(
   const { onSubmitted, onSigning } = typeof hooks === "function" ? { onSubmitted: hooks, onSigning: undefined } : hooks;
   assertActionShape(action);
   assertAllowedRecipients(action, action.forbiddenRecipients ?? []);
-  const { wallet, sender } = await connectedWallet(provider, action.chainId);
+  const { wallet, sender } = await connectedWallet(provider, action.chainId, onSigning);
+  onSigning?.("validation");
   if (action.expectedSender && !same(sender, action.expectedSender)) throw new Error("Connected wallet does not control the selected account");
   await assertFresh(client, action);
   await action.revalidate?.();
@@ -230,6 +234,7 @@ export async function sendAction(
   }
   // A direct eth_call of a multisend outside the Safe's delegatecall context
   // would simulate the wrong thing; batches are simulated as the whole Safe execution.
+  onSigning?.("simulation");
   if (action.kind === "safe" && operationOf(action) === 0) await client.call({ account: action.account, ...action.call });
   await client.call({ account: sender, ...call });
   const gas = await client.estimateGas({ account: sender, ...call });

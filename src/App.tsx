@@ -79,7 +79,6 @@ export function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState<PreparedAction>();
-  const [reviewed, setReviewed] = useState(false);
   const [lastHash, setLastHash] = useState<Hex | undefined>(() => readProgress().transactions.find(tx => tx.status === "pending")?.hash);
   const [uncertain, setUncertain] = useState(() => readProgress().transactions.some(tx => tx.status === "pending"));
   const [owner, setOwner] = useState("");
@@ -101,7 +100,7 @@ export function App() {
     try { return publicClient(chain, rpc); } catch { return undefined; }
   }, [chain, rpc]);
   useEffect(() => { try { saveProgress(progress); } catch { setError("Local progress could not be saved. Export it before closing this page."); } }, [progress]);
-  useEffect(() => { setReview(undefined); setReviewed(false); }, [destination, token, amount, owner, requestId, cardAddress]);
+  useEffect(() => { setReview(undefined); }, [destination, token, amount, owner, requestId, cardAddress]);
   useEffect(() => { document.documentElement.lang = lang === "pt" ? "pt-BR" : "en"; }, [lang]);
   const [demo, setDemo] = useState(false);
   useEffect(() => {
@@ -119,24 +118,27 @@ export function App() {
   }
   function goToStep(next: 0 | 1 | 2 | 3) {
     setActiveItem(undefined);
-    setStep(next > 0 && !snapshot ? 0 : next === 1 && snapshot?.passkey !== "detected" ? 0 : next); setReview(undefined); setReviewed(false);
+    setStep(next > 0 && !snapshot ? 0 : next === 1 && snapshot?.passkey !== "detected" ? 0 : next); setReview(undefined);
   }
-  useEffect(() => { setReview(undefined); setReviewed(false); }, [walletAddress, connection.connector?.uid, connection.chainId]);
+  useEffect(() => { setReview(undefined); }, [walletAddress, connection.connector?.uid, connection.chainId]);
   function requireClient() { if (!client) throw new Error(t("Informe um RPC válido.", "Enter a valid RPC.")); return client; }
   function requireSnapshot() {
     if (!snapshot || snapshot.chainId !== chainId || !same(snapshot.address, account)) throw new Error(t("Consulte a conta primeiro.", "Inspect the account first."));
     return snapshot;
   }
+  const runningTask = useRef(false);
   async function run(task: () => Promise<void>) {
+    if (runningTask.current) return;
+    runningTask.current = true;
     setBusy(true); setError(""); setNotice("");
     try { await task(); } catch (e) {
       setError(displayError(e, lang));
-    } finally { setBusy(false); }
+    } finally { runningTask.current = false; setBusy(false); }
   }
   function resetInspection() {
     assetRequest.current++; setActiveItem(undefined);
     setSnapshot(undefined); setReview(undefined); setPositions([]); setCoveredRequests([]); setScanProgress(""); setMamoPositions([]); setPositionFailures([]);
-    setCardDelay(undefined); setQueue([]); setReviewed(false); setStep(0);
+    setCardDelay(undefined); setQueue([]); setStep(0);
   }
   useEffect(() => {
     // Follow the connected address, including account switches.
@@ -154,11 +156,12 @@ export function App() {
     setProgress(old => ({ ...old, accounts: old.accounts.some(a => a.chainId === result.chainId && same(a.address, result.account))
       ? old.accounts : [...old.accounts, { chainId: result.chainId, address: result.account, label: `Account ${short(result.account)}` }].slice(-100) }));
   }
-  function openReview(prepared: PreparedAction) {
+  async function openReview(prepared: PreparedAction) {
     const action = { ...prepared, forbiddenRecipients: [...prepared.forbiddenRecipients ?? [], ...guardians] };
     if (action.receive) assertSeparateRecipient(action.receive.recipient, walletAddress, guardians);
     if (uncertain) throw new Error(t("Confira a transação pendente antes de preparar outra.", "Check the pending transaction before preparing another."));
-    setReview(action); setReviewed(false);
+    setReview(action);
+    await execute(false, action);
   }
   async function refresh() {
     const found = await inspectAccount(requireClient(), account, chainId);
@@ -186,16 +189,14 @@ export function App() {
     });
     setUncertain(false); setLastHash(undefined);
   }
-  function submitted(hash: Hex, expectation?: ReceiptExpectation) {
-    record({ chainId, account: review?.account ?? address(account), hash, label: review?.label ?? "Transaction", expectation });
-  }
-  async function execute(approveOnly = false) {
-    if (!review || !reviewed || uncertain) return;
-    if (review.receive) assertSeparateRecipient(review.receive.recipient, walletAddress, guardians);
-    const receipt = approveOnly ? await approveSafeProposal(requireClient(), await provider(), review, submitted)
-      : await sendAction(requireClient(), await provider(), review, submitted);
+  async function execute(approveOnly = false, action = review) {
+    if (!action || uncertain) return;
+    if (action.receive) assertSeparateRecipient(action.receive.recipient, walletAddress, guardians);
+    const onSubmitted = (hash: Hex, expectation?: ReceiptExpectation) => record({ chainId: action.chainId, account: action.account, label: action.label, hash, expectation });
+    const receipt = approveOnly ? await approveSafeProposal(requireClient(), await provider(), action, onSubmitted)
+      : await sendAction(requireClient(), await provider(), action, onSubmitted);
     confirmed(receipt.transactionHash);
-    setReview(undefined); setReviewed(false);
+    setReview(undefined);
     setNotice(t("Execução confirmada. Atualize as posições para conferir as próximas etapas.", "Execution confirmed. Refresh positions to check the next steps."));
     await refresh();
     diagnosis.rescan(chainId);
@@ -212,9 +213,9 @@ export function App() {
     const call = transferCall(coin, destination, value);
     if (card) {
       if (!cardDelay) throw new Error("Inspect the card first");
-      openReview(enqueueCard(cardDelay, call, chainId, safe.address, safe));
+      await openReview(enqueueCard(cardDelay, call, chainId, safe.address, safe));
     } else {
-      openReview({ ...safeAction(safe, call, t("Transferir ativo", "Transfer asset")),
+      await openReview({ ...safeAction(safe, call, t("Transferir ativo", "Transfer asset")),
         receive: { token: coin, recipient: address(destination), minimum: value } });
     }
   }
@@ -339,7 +340,7 @@ export function App() {
             onSubmitted={record} onConfirmed={(id, hash) => { confirmed(hash); diagnosis.rescan(id); }}
             openItem={item => { const result = diagnosis.results.find(r => r.chainId === item.chainId); if (result) openAsset(item, result); }}
             editSelection={() => { setActiveItem(undefined); goToStep(2); }} />}
-          {step === 3 && activeItem && <section className="panel compact active-asset"><div className="network-cell"><ChainLogo id={activeItem.chainId} /><ItemText item={activeItem} lang={lang} /></div><button className="text-button" disabled={busy} onClick={() => { setActiveItem(undefined); setReview(undefined); setReviewed(false); }}>{t("Fechar detalhes", "Close details")}</button></section>}
+          {step === 3 && activeItem && <section className="panel compact active-asset"><div className="network-cell"><ChainLogo id={activeItem.chainId} /><ItemText item={activeItem} lang={lang} /></div><button className="text-button" disabled={busy} onClick={() => { setActiveItem(undefined); setReview(undefined); }}>{t("Fechar detalhes", "Close details")}</button></section>}
           {step === 3 && activeItem && (tab === "transfer" || tab === "card") && <section className="panel">
             <p className="eyebrow">{tab === "card" ? t("CARTÃO", "CARD") : t("SALDO E TOKENS", "BALANCE AND TOKENS")}</p><h2>{tab === "card" ? t("Retire o saldo do cartão.", "Withdraw card funds.") : t("Escolha o destino dos seus ativos.", "Choose where your assets go.")}</h2>
             {tab === "card" && <>
@@ -349,7 +350,7 @@ export function App() {
                 {queue.map(q => <div className="queue-row" key={q.nonce.toString()}>
                   <strong>#{q.nonce.toString()} · {queueStatus(q.createdAt, cardDelay.cooldown, cardDelay.expiration, snapshot?.timestamp ?? 0n)}</strong>
                   <p className="mono small">{q.to}</p><details><summary>{t("Ver chamada", "View call")}</summary><code>{q.data}</code><p>{q.value.toString()} wei</p></details>
-                  <button className="outline" disabled={busy || q.nonce !== cardDelay.head} onClick={() => run(async () => openReview(await dispatchCard(requireClient(), cardDelay, q, chainId)))}>{t("Revisar execução", "Review execution")}</button>
+                  <button className="outline" disabled={busy || q.nonce !== cardDelay.head} onClick={() => run(async () => openReview(await dispatchCard(requireClient(), cardDelay, q, chainId)))}>{t("Executar na carteira", "Execute in wallet")}</button>
                 </div>)}</>}
               </>}
             </>}
@@ -360,7 +361,7 @@ export function App() {
               aria-invalid={!!destination && !!transferProblem} aria-describedby={destination && transferProblem ? "transfer-destination-error" : undefined} /></Field>
             {destination && transferProblem && <DestinationMessage id="transfer-destination-error" problem={transferProblem} lang={lang} />}
             <p className="small muted">{t("O envio acontece nesta rede, sem conversão. Para começar, escolha uma pequena quantidade.", "The transfer stays on this network, with no conversion. Start with a small amount.")}</p>
-            <button disabled={busy || !snapshot || (tab === "card" && !cardDelay) || !!transferProblem} onClick={() => run(() => prepareTransfer(tab === "card"))}>{tab === "card" ? t("Revisar retirada com espera", "Review delayed withdrawal") : t("Revisar transferência", "Review transfer")}</button></>}
+            <button disabled={busy || !snapshot || (tab === "card" && !cardDelay) || !!transferProblem} onClick={() => run(() => prepareTransfer(tab === "card"))}>{tab === "card" ? t("Solicitar retirada", "Request withdrawal") : t("Transferir na carteira", "Transfer in wallet")}</button></>}
           </section>}
           {step === 3 && activeItem && tab === "invest" && <section className="panel">
             <p className="eyebrow">{t("POSIÇÕES E RESGATES", "POSITIONS & REDEMPTIONS")}</p><h2>{t("Saia pelo contrato do investimento.", "Exit through the investment contract.")}</h2>
@@ -380,13 +381,13 @@ export function App() {
               <div className="row"><button className="outline" disabled={busy || p.balance === 0n || !!investProblem} onClick={() => run(async () => {
                 const safe = requireSnapshot();
                 if (destination) assertSeparateRecipient(destination, walletAddress, guardians);
-                openReview(await redeemPosition(requireClient(), safe, p.product, amount ? parseAmount(amount, p.decimals) : p.available !== undefined && p.available < p.balance ? p.available : p.balance, destination || safe.address));
-              })}>{p.product.kind === "receipt" ? t("Transferir posição", "Transfer position") : t("Revisar resgate", "Review redemption")}</button>
+                await openReview(await redeemPosition(requireClient(), safe, p.product, amount ? parseAmount(amount, p.decimals) : p.available !== undefined && p.available < p.balance ? p.available : p.balance, destination || safe.address));
+              })}>{p.product.kind === "receipt" ? t("Transferir posição", "Transfer position") : t("Resgatar na carteira", "Redeem in wallet")}</button>
                 {!["staking", "receipt"].includes(p.product.kind) && <button className="text-button" disabled={busy || !destination || !p.balance || !!investProblem} onClick={() => run(async () => {
                   const safe = requireSnapshot(), recipient = address(destination);
                   if (same(recipient, safe.address)) throw new Error("Choose an external destination for the position transfer");
                   const units = amount ? parseAmount(amount, p.decimals) : p.balance;
-                  openReview({ ...safeAction(safe, transferCall(p.product.address, recipient, units), t("Transferir posição sem resgatar", "Transfer position without redemption")), receive: { token: p.product.address, recipient, minimum: units } });
+                  await openReview({ ...safeAction(safe, transferCall(p.product.address, recipient, units), t("Transferir posição sem resgatar", "Transfer position without redemption")), receive: { token: p.product.address, recipient, minimum: units } });
                 })}>{t("Transferir posição ao destino", "Transfer position to destination")}</button>}
                 {p.product.kind === "staking" && <button className="text-button" disabled={busy} onClick={() => run(async () => openReview(claimStakingRewards(requireSnapshot(), p.product)))}>{t("Receber recompensas", "Claim rewards")}</button>}
                 {p.product.kind === "covered" && <button className="outline" disabled={busy || !p.claimable} onClick={() => run(async () => openReview(await claimCovered(requireClient(), requireSnapshot(), p.product)))}>{t("Receber sDAI", "Claim sDAI")}</button>}
@@ -410,7 +411,7 @@ export function App() {
               </details>}
               {p.requests?.map((r, i) => <div className="queue-row" key={`${r.requestTime}:${i}`}>
                 <p>{formatUnits(r.amount, 18)} POL · {new Date(Number(r.withdrawalTime) * 1000).toLocaleString(lang)}</p>
-                <button className="outline" disabled={busy} onClick={() => run(async () => openReview(await claimStader(requireClient(), requireSnapshot(), p.product, i)))}>{t("Revisar claim", "Review claim")}</button>
+                <button className="outline" disabled={busy} onClick={() => run(async () => openReview(await claimStader(requireClient(), requireSnapshot(), p.product, i)))}>{t("Receber na carteira", "Claim in wallet")}</button>
               </div>)}
             </article>)}
             {!excluded(activeItem.id) && mamoPositions.filter(p => !activeItem.strategy || same(p.address, activeItem.strategy.address)).map(p => <article className="position" key={p.address}>
@@ -423,7 +424,7 @@ export function App() {
           {step === 3 && activeItem && tab === "legacy" && excluded(activeItem.id) && <section className="panel compact"><p className="note">{t("As cestas antigas desta rede não estão selecionadas. Selecione-as em Preparar carteiras para movê-las.", "Legacy baskets on this network are not selected. Select them in Prepare wallets to move them.")}</p></section>}
           {step === 3 && activeItem && tab === "legacy" && !excluded(activeItem.id) && <LegacyPanel contents={activeItem.basketId !== undefined ? <BasketContentsView contents={baskets.contents[String(activeItem.basketId)]} lang={lang} retry={() => baskets.retry([activeItem.basketId!])} /> : undefined} initialNft={activeItem.basketId} key={`${activeItem.id}:${snapshot?.address ?? ""}:${rpc}`} client={client} snapshot={snapshot} busy={busy} lang={lang} run={run} review={openReview} invalidate={() => setReview(undefined)} />}
           {review && <section className="panel review" aria-label={t("Revisão da transação", "Transaction review")}>
-            <p className="eyebrow">{t("ANTES DE ASSINAR", "BEFORE YOU SIGN")}</p><h2>{review.label}</h2>
+            <p className="eyebrow">{t("TRANSAÇÃO", "TRANSACTION")}</p><h2>{review.label}</h2>
             <dl><dt>{t("Rede", "Network")}</dt><dd>{chain.name} ({review.chainId})</dd><dt>{t("Conta", "Account")}</dt><dd className="mono">{review.account}</dd>
               <dt>{t("Contrato chamado", "Called contract")}</dt><dd className="mono">{review.call.to}</dd><dt>{t("Valor nativo", "Native value")}</dt><dd>{formatUnits(review.call.value, 18)} {chain.nativeCurrency.symbol}</dd>
               {review.expectedOwner && <><dt>{t("Novo owner", "New owner")}</dt><dd className="mono">{review.expectedOwner}</dd></>}
@@ -433,9 +434,8 @@ export function App() {
             {!review.approval && <CallDetails call={review.call} />}
             <details><summary>{t("Dados da chamada", "Call data")}</summary><code>{review.approval ? t("A assinatura EIP-712 será vinculada à rede, módulo, Safe, novo owner e nonce.", "The EIP-712 signature is bound to chain, module, Safe, new owner and nonce.") : review.call.data}</code></details>
             <p className="small">{t("A operação será simulada antes do envio. Sua carteira mostrará o gas, pago por você.", "The operation is simulated before sending. Your wallet will show the gas you pay.")}</p>
-            <label className="checkbox"><input type="checkbox" disabled={busy} checked={reviewed} onChange={e => setReviewed(e.target.checked)} />{t("Conferi a rede, o destino e o efeito desta operação.", "I checked the network, destination and effect of this operation.")}</label>
-            <div className="row"><button disabled={busy || !reviewed || uncertain} onClick={() => run(() => execute())}>{busy ? t("Aguardando…", "Waiting…") : t("Assinar na minha carteira", "Sign in my wallet")}</button>
-              {review.kind === "safe" && snapshot && snapshot.threshold > 1n && <button className="outline" disabled={busy || !reviewed || uncertain} onClick={() => run(() => execute(true))}>{t("Registrar minha aprovação", "Register my approval")}</button>}
+            <div className="row"><button disabled={busy || uncertain} onClick={() => run(() => execute())}>{busy ? t("Aguardando…", "Waiting…") : t("Tentar novamente na carteira", "Try again in wallet")}</button>
+              {review.kind === "safe" && snapshot && snapshot.threshold > 1n && <button className="outline" disabled={busy || uncertain} onClick={() => run(() => execute(true))}>{t("Registrar minha aprovação", "Register my approval")}</button>}
               <button className="quiet" disabled={busy} onClick={() => setReview(undefined)}>{t("Voltar", "Back")}</button></div>
           </section>}
           {progress.transactions.length > 0 && <section className="panel compact"><h3>{t("Transações deste navegador", "Transactions from this browser")}</h3>

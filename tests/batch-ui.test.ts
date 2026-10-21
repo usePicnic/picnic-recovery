@@ -75,7 +75,7 @@ describe("guardian new-owner input", () => {
     const html = renderToStaticMarkup(createElement(RecoveryPanel, { snapshot, wallet: owner, lang: "en", busy: false, owner: guardian, setOwner: () => {}, networkIds: [137], selectNetwork: () => {}, prepare: () => {}, review: () => {} }));
     expect(html).toContain("This address is a guardian of this account");
     expect(html).toContain('aria-invalid="true"');
-    expect(html).toMatch(/<button disabled="">Review approval<\/button>/);
+    expect(html).toMatch(/<button disabled="">Approve in wallet<\/button>/);
   });
 });
 

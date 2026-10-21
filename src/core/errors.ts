@@ -9,6 +9,9 @@ export function displayError(error: unknown, lang: "pt" | "en") {
     if (value.code === 4001 || value.name === "UserRejectedRequestError") return lang === "pt"
       ? "Você recusou a solicitação na carteira. Pode tentar novamente quando quiser."
       : "You declined the wallet request. You can try again when ready.";
+    if (value.code === -32002) return lang === "pt"
+      ? "Já existe uma solicitação pendente na carteira. Abra a extensão para concluir ou cancelar."
+      : "A request is already pending in your wallet. Open the extension to complete or cancel it.";
     current = value.cause;
   }
   if (error && typeof error === "object" && "shortMessage" in error && typeof error.shortMessage === "string") return error.shortMessage;
