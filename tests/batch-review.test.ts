@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { encodeAbiParameters, zeroAddress, type Address, type PublicClient, type EIP1193Provider } from "viem";
+import { decodeFunctionData, encodeAbiParameters, zeroAddress, type Address, type PublicClient, type EIP1193Provider } from "viem";
 import { polygon } from "viem/chains";
 import { destinationError, assertSeparateRecipient } from "../src/core/destination";
 import { assertAllowedRecipients, connectedWallet } from "../src/core/actions";
-import { readBatchFacts, planBatch, batchPartAction, type BatchFact } from "../src/core/batch";
+import { readBatchFacts, screenTokenTransfers, planBatch, batchPartAction, type BatchFact } from "../src/core/batch";
 import type { BasketContents } from "../src/core/basket-contents";
 import type { AccountSnapshot, PreparedAction } from "../src/core/types";
 
@@ -73,5 +73,45 @@ describe("selected wallet session", () => {
     const provider = { request: async () => [] } as unknown as EIP1193Provider;
     await expect(connectedWallet(provider, 137)).rejects.toThrow(/disconnected or locked/);
     expect(displayError({ cause: { code: -32002 } }, "pt")).toContain("Abra a extensão");
+  });
+});
+
+
+describe("nontransferable tokens in a network batch", () => {
+  it("screens through the Safe with the actual sender and destination, and retains blocked balances as pending", async () => {
+    const { safeAbi, erc20Abi } = await import("../src/core/abi");
+    const facts: BatchFact[] = [{ id: "blocked", kind: "token", label: "LOCKED", token, balance: 10n }, { id: "native", kind: "native", label: "POL", balance: 5n }];
+    const client = { call: async (call: { account: Address; to: Address; data: `0x${string}`; blockNumber: bigint }) => {
+      expect(call.account).toBe(wallet); expect(call.to).toBe(safe); expect(call.blockNumber).toBe(snapshot.block);
+      const execution = decodeFunctionData({ abi: safeAbi, data: call.data });
+      expect(execution.functionName).toBe("execTransaction");
+      const args = execution.args as readonly unknown[];
+      expect(args[0]).toBe(token);
+      expect(decodeFunctionData({ abi: erc20Abi, data: args[2] as `0x${string}` }).args).toEqual([recipient, 10n]);
+      throw new Error("Execution reverted with reason: GS013");
+    } } as unknown as PublicClient;
+    const checked = await screenTokenTransfers(client, snapshot, facts, recipient, wallet);
+    const plan = planBatch({ snapshot, destination: recipient, facts: checked, multisend });
+    expect(plan.parts).toEqual([["native"]]);
+    expect(plan.entries[0]).toMatchObject({ status: "individual", transferBlocked: true, calls: [], receives: [] });
+    expect(plan.entries[0].notes.join(" ")).toContain("balance remains");
+    expect(facts[0]).not.toHaveProperty("transferBlocked");
+  });
+  it("does not exclude assets on RPC failures or Safe authorization failures", async () => {
+    const facts: BatchFact[] = [{ id: "t", kind: "token", label: "T", token, balance: 10n }];
+    for (const error of ["RPC timeout", "execution reverted GS026", "out of gas"]) {
+      const client = { call: async () => { throw new Error(error); } } as unknown as PublicClient;
+      await expect(screenTokenTransfers(client, snapshot, facts, recipient, wallet)).rejects.toThrow(error);
+    }
+  });
+  it("does not reuse blocked status when a fresh transfer succeeds or simulate an unauthorized multisig executor", async () => {
+    let calls = 0;
+    const client = { call: async () => { calls++; return { data: "0x" }; } } as unknown as PublicClient;
+    const facts: BatchFact[] = [{ id: "t", kind: "token", label: "T", token, balance: 10n, transferBlocked: true }];
+    expect((await screenTokenTransfers(client, snapshot, facts, recipient, wallet))[0]).toMatchObject({ transferBlocked: false });
+    await screenTokenTransfers(client, { ...snapshot, threshold: 2n }, facts, recipient, wallet);
+    await screenTokenTransfers(client, snapshot, facts, recipient, recipient);
+    expect(calls).toBe(1);
+    expect(displayError(new Error("Execution reverted with reason: GS013"), "pt")).toContain("transferência pode estar bloqueada");
   });
 });

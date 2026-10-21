@@ -4,7 +4,7 @@ import { chainById, chains } from "../catalog/chains";
 import { publicClient, same } from "../core/client";
 import { inspectAccount } from "../core/inspect";
 import { approveSafeProposal, safeHash, sendAction } from "../core/actions";
-import { batchPartAction, includedEntries, planBatch, readBatchFacts, type BatchEntry, type BatchPlan } from "../core/batch";
+import { batchPartAction, includedEntries, planBatch, readBatchFacts, screenTokenTransfers, type BatchEntry, type BatchPlan } from "../core/batch";
 import { approvedMultiSend, findMultiSend } from "../core/multisend";
 import { destinationError } from "../core/destination";
 import type { ReceiptExpectation } from "../core/receipts";
@@ -117,7 +117,10 @@ export function BatchMigration(props: Props) {
         if (!same(snapshot.address, account)) throw new Error("Source account changed");
         const multisend = snapshot.version === "EOA" ? undefined : (await findMultiSend(client, chainId))?.address;
         const facts = await readBatchFacts(client, snapshot, sources, multicall);
-        const plan = planBatch({ snapshot, destination, facts, multisend, guardians });
+        // Validate destination/account constraints before probing any transfer.
+        const initial = planBatch({ snapshot, destination, facts, multisend, guardians });
+        const checked = initial.unavailable ? facts : await screenTokenTransfers(client, snapshot, facts, initial.destination, wallet);
+        const plan = planBatch({ snapshot, destination, facts: checked, multisend, guardians });
         const included = includedEntries(plan, 0), sent = entry(chainId).sent;
         let action: PreparedAction | undefined, safeTxHash: Hex | undefined;
         if (!plan.unavailable && included.length) {
@@ -225,6 +228,7 @@ export function BatchMigration(props: Props) {
             {item.amount && <span className="numeric">{formatAmount(item.amount.value, item.amount.decimals, lang)}</span>}
             {item.basketId !== undefined && <BasketContentsView compact contents={item.contents} lang={lang} retry={() => baskets.retry([item.basketId!])} />}
           </li>)}</ul></details>}
+          {s.plan?.entries.some(e => e.transferBlocked) && <BlockedTransfers plan={s.plan} lang={lang} />}
           {s.plan && <details className="network-assets"><summary>{t("Detalhes da transação", "Transaction details")}</summary><PlanView plan={s.plan} snapshot={s.snapshot!} action={s.action} safeTxHash={s.safeTxHash} wallet={wallet} lang={lang} sent={s.sent}
             items={own} openItem={props.openItem} amount={r => amount(chainId, r)} /></details>}
           {!s.done && <div className="batch-actions">
@@ -243,6 +247,15 @@ export function BatchMigration(props: Props) {
     </ol>
   </section>;
 }
+export function BlockedTransfers({ plan, lang }: { plan: BatchPlan; lang: Lang }) {
+  const blocked = plan.entries.filter(entry => entry.transferBlocked);
+  if (!blocked.length) return null;
+  return <div className="batch-blocked-transfers migration-error" role="alert">
+    <strong>{lang === "pt" ? "Estes tokens não entram na migração" : "These tokens are not included in the migration"}</strong>
+    <p className="small">{lang === "pt" ? "A transferência falhou na simulação. O saldo permanece na conta de origem; os demais ativos podem ser migrados." : "The transfer failed in simulation. The balance remains in the source account; the other assets can be migrated."}</p>
+    <ul>{blocked.map(entry => <li key={entry.id}>{entry.label}</li>)}</ul>
+  </div>;
+}
 export const batchHasFollowups = (plan?: BatchPlan) => !!plan?.entries.some(e => e.status === "individual" || e.status === "later" || e.later.length > 0);
 const laterOf = (plan: BatchPlan) => plan.entries.filter(e => e.status === "later" || (e.status === "included" && e.later.length));
 function outcomeText(e: BatchEntry, lang: Lang) {
@@ -253,7 +266,7 @@ function outcomeText(e: BatchEntry, lang: Lang) {
 }
 function statusText(e: BatchEntry, lang: Lang) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
-  return e.status === "individual" ? t("Fora deste lote: retire individualmente", "Not in this batch: withdraw individually")
+  return e.transferBlocked ? t("Transferência bloqueada · saldo permanece na conta", "Transfer blocked · balance remains in the account") : e.status === "individual" ? t("Fora deste lote: retire individualmente", "Not in this batch: withdraw individually")
     : e.status === "later" ? t("Fora deste lote: depende de uma etapa posterior", "Not in this batch: needs a later step")
     : e.status === "empty" ? t("Sem saldo agora", "No balance now") : t("Neste lote", "In this batch");
 }
@@ -269,12 +282,12 @@ export function Leftovers({ plan, items, lang, openItem }: { plan: BatchPlan; it
   const rest = plan.entries.filter(e => e.status === "individual" || e.status === "later");
   const remainingParts = Math.max(0, plan.parts.length - 1);
   if (!rest.length && !remainingParts && !plan.entries.some(e => e.status === "included" && e.later.length)) return null;
-  return <div className="batch-later">
+  return <div className={`batch-later${rest.some(entry => entry.transferBlocked) ? " has-blocked" : ""}`}>
     <strong>{t("Ainda falta nesta rede", "Still to do on this network")}</strong>
     {remainingParts > 0 && <p className="small">{t(`${remainingParts} parte(s) do lote ainda não enviada(s). Revise o que resta para continuar.`, `${remainingParts} batch part(s) not sent yet. Review what remains to continue.`)}</p>}
     <ul className="batch-entries">{rest.map(e => { const item = items.find(i => i.id === e.id); return <li key={e.id}>
-      <div className="batch-entry-head"><strong>{e.label}</strong><em className="token-badge">{statusText(e, lang)}</em>
-        {item && e.status === "individual" && <button type="button" className="table-action" onClick={() => openItem(item)}>{t("Abrir", "Open")}</button>}</div>
+      <div className={`batch-entry-head${e.transferBlocked ? " migration-error" : ""}`}><strong>{e.label}</strong><em className="token-badge">{statusText(e, lang)}</em>
+        {item && e.status === "individual" && !e.transferBlocked && <button type="button" className="table-action" onClick={() => openItem(item)}>{t("Abrir", "Open")}</button>}</div>
       <Notes entry={e} lang={lang} /></li>; })}</ul>
     {plan.entries.some(e => e.status === "included" && e.later.length) && <ul className="small">{plan.entries.filter(e => e.status === "included" && e.later.length).map(e => <li key={e.id}>
       {e.outcome === "queued" ? t(`${e.label}: pedido criado. Execute-o pela linha do cartão depois da espera.`, `${e.label}: request created. Execute it from the card row after the waiting period.`)
@@ -335,7 +348,7 @@ export function PlanView({ plan, snapshot, action, safeTxHash, wallet, lang, sen
     {now.length === 0 && !plan.unavailable && <p className="small muted">{sent > 0 ? t("Nenhum saldo restante para agrupar nesta rede.", "No balance left to group on this network.") : t("Nada para agrupar agora nesta rede.", "Nothing to group now on this network.")}</p>}
     {outside.length > 0 && <div className="batch-group"><h4>{t("Fora desta transação", "Not in this transaction")}</h4><ul className="batch-entries">{outside.map(e => <li key={e.id}>
       <div className="batch-entry-head"><strong>{e.label}</strong><em className="token-badge">{plan.unavailable ? t("Retire individualmente", "Withdraw individually") : statusText(e, lang)}</em>
-        {item(e.id) && (e.status === "individual" || plan.unavailable) && <button type="button" className="table-action" onClick={() => openItem(item(e.id)!)}>{t("Abrir", "Open")}</button>}</div>
+        {item(e.id) && !e.transferBlocked && (e.status === "individual" || plan.unavailable) && <button type="button" className="table-action" onClick={() => openItem(item(e.id)!)}>{t("Abrir", "Open")}</button>}</div>
       <Notes entry={e} lang={lang} /></li>)}</ul></div>}
     {laterOf(plan).some(e => e.status === "included") && <p className="small">{t("Alguns itens deste lote têm uma etapa posterior (pedidos do cartão, recompensas ou resgates). Ela continua listada depois da confirmação.", "Some items in this batch have a later step (card requests, rewards or redemptions). It stays listed after confirmation.")}</p>}
     {empty.length > 0 && <p className="small muted">{t("Sem saldo agora", "No balance now")}: {empty.map(e => e.label).join(", ")}</p>}

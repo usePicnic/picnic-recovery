@@ -204,3 +204,9 @@
 .batch-step{min-width:0}
 .batch-step-head>input{padding:0;margin:0}
 @media(max-width:640px){.batch-step-head{flex-wrap:wrap;gap:8px}.batch-step-head .status-pill{flex-basis:100%;width:fit-content;justify-content:flex-start;text-align:left}.batch-step-title{min-width:90px}}
+
+.batch-blocked-transfers{margin-top:14px;padding:12px 14px;background:#FFF1F1;border:1px solid #E8A6A6;border-radius:8px}
+.batch-blocked-transfers p{margin:6px 0}.batch-blocked-transfers ul{margin:6px 0 0;padding-left:18px}
+
+.batch-entry-head.migration-error .token-badge{color:inherit;background:#FFF1F1;border-color:#E8A6A6}
+.batch-later.has-blocked{background:#FFF1F1;border-color:#E8A6A6}

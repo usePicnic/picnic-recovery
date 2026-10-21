@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { zeroAddress, type Address } from "viem";
-import { PlanView, Leftovers, BatchMigration, batchHasFollowups } from "../src/components/BatchMigration";
+import { PlanView, BlockedTransfers, Leftovers, BatchMigration, batchHasFollowups } from "../src/components/BatchMigration";
 import { RecoveryPanel } from "../src/components/RecoveryPanel";
 import { BasketContentsView } from "../src/components/BasketContents";
 import { DestinationMessage } from "../src/components/DestinationMessage";
@@ -105,4 +105,14 @@ describe("basket contents view", () => {
     expect(html).toContain("does not mean zero");
     expect(renderToStaticMarkup(createElement(BasketContentsView, { lang: "pt" }))).toContain("na fila de leitura");
   });
+});
+
+it("shows blocked tokens as red pending items rather than offering an individual retry or declaring them migrated", () => {
+  const plan = planBatch({ snapshot, destination: dest, facts: [{ id: "locked", kind: "token", label: "MNEP", token: usdc, balance: 10n, transferBlocked: true }], multisend: MS141 });
+  const warning = renderToStaticMarkup(createElement(BlockedTransfers, { plan, lang: "pt" }));
+  expect(warning).toContain('role="alert"'); expect(warning).toContain("migration-error"); expect(warning).toContain("MNEP");
+  expect(warning).toContain("saldo permanece na conta");
+  expect(batchHasFollowups(plan)).toBe(true);
+  const html = renderToStaticMarkup(createElement(Leftovers, { plan, items: [], lang: "pt", openItem: () => {} }));
+  expect(html).toContain("Transferência bloqueada"); expect(html).not.toContain("retire individualmente");
 });

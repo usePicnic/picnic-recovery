@@ -10,7 +10,7 @@ import multiSendArtifact from "./fixtures/MultiSendCallOnly.json";
 import { inspectAccount } from "../src/core/inspect";
 import { erc20Abi, safeAbi } from "../src/core/abi";
 import { sendAction, approveSafeProposal, safeHash, safeTypes, safeBatchAction, transferCall } from "../src/core/actions";
-import { batchPartAction, planBatch, readBatchFacts, type BatchSource } from "../src/core/batch";
+import { batchPartAction, planBatch, readBatchFacts, screenTokenTransfers, type BatchSource } from "../src/core/batch";
 import { findMultiSend } from "../src/core/multisend";
 import { verifyReceipt, type ReceiptExpectation } from "../src/core/receipts";
 import { parseProgress } from "../src/core/progress";
@@ -121,6 +121,31 @@ describe("Safe batch migration through the canonical MultiSendCallOnly runtime",
     // Replaying the reviewed action is refused (balances and nonce both moved).
     await expect(sendAction(client, provider(0), action, () => {})).rejects.toThrow(/balance changed|nonce changed/);
     await expect(sendAction(client, provider(0), { ...action, revalidate: undefined }, () => {})).rejects.toThrow(/nonce changed/);
+  }, 60_000);
+
+  it("keeps a reverting token pending while migrating the other token in one transaction", async () => {
+    const safe = await newSafe([accounts[0]], 1n), destination = accounts[7];
+    await mint(tokenA, safe, 31n); await mint(tokenB, safe, 47n);
+    const setBlocked = async (blocked: boolean) => client.waitForTransactionReceipt({ hash: await wallet.writeContract({ account: accounts[0], address: tokenB,
+      abi: parseAbi(["function setTransfersBlocked(bool blocked)"]), functionName: "setTransfersBlocked", args: [blocked] }) });
+    await setBlocked(true);
+    try {
+      const { snapshot, action: unscreened } = await prepare(safe, destination, sources().slice(1));
+      methods.length = 0;
+      await expect(sendAction(client, provider(0, true), unscreened, () => {})).rejects.toThrow(/GS013/);
+      expect(methods.filter(m => m === "eth_sendTransaction")).toHaveLength(0);
+      const facts = await readBatchFacts(client, snapshot, sources().slice(1));
+      const checked = await screenTokenTransfers(client, snapshot, facts, destination, accounts[0]);
+      const plan = planBatch({ snapshot, destination, facts: checked, multisend: MS141 });
+      expect(plan.parts).toEqual([["100:token:a"]]);
+      expect(plan.entries[1]).toMatchObject({ transferBlocked: true, status: "individual" });
+      const action = batchPartAction({ snapshot, plan, part: 0, label: "Migrate transferable token" });
+      await sendAction(client, provider(0, true), action, () => {});
+      expect(methods.filter(m => m === "eth_sendTransaction")).toHaveLength(1);
+      expect(await balance(tokenA, destination)).toBe(31n);
+      expect(await balance(tokenB, destination)).toBe(0n);
+      expect(await balance(tokenB, safe)).toBe(47n);
+    } finally { await setBlocked(false); }
   }, 60_000);
 
   it("refuses tampered payloads, unverified runtimes and failing children before any transaction is sent", async () => {

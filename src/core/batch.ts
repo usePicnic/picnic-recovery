@@ -1,8 +1,8 @@
-import { encodeFunctionData, getAddress, type Address, type Hex, type PublicClient } from "viem";
+import { BaseError, encodeFunctionData, getAddress, zeroAddress, type Address, type Hex, type PublicClient } from "viem";
 import type { Product } from "../catalog/products";
-import { delayAbi, erc20Abi } from "./abi";
+import { delayAbi, erc20Abi, safeAbi } from "./abi";
 import { address, same } from "./client";
-import { safeBatchAction } from "./actions";
+import { prevalidatedSignature, safeBatchAction } from "./actions";
 import { aggregateWords, balanceOfData } from "./reads";
 import { BASKET, basketAbi } from "./legacy";
 import { inspectCard, queueHash, type CardDelay } from "./card";
@@ -29,7 +29,7 @@ export type BatchSource =
 // requires each to be unchanged or larger before sending.
 export type BatchFact =
   | { id: string; kind: "native"; label: string; balance: bigint }
-  | { id: string; kind: "token"; label: string; token: Address; balance: bigint; decimals?: number; symbol?: string }
+  | { id: string; kind: "token"; label: string; token: Address; balance: bigint; decimals?: number; symbol?: string; transferBlocked?: boolean }
   | { id: string; kind: "position"; label: string; position: Position }
   | { id: string; kind: "mamo"; label: string; mamo: MamoPosition }
   | { id: string; kind: "basket"; label: string; nftId: bigint; owned: boolean; wallet?: Address; tokens: (BasketHolding & { fresh: bigint })[]; native: bigint;
@@ -48,7 +48,7 @@ export type Outcome = "received" | "shares" | "queued";
 export type BatchEntry = {
   id: string; label: string; status: EntryStatus; outcome?: Outcome;
   calls: Call[]; callLabels: string[]; receives: Receive[]; queued: { module: Address; txHash: Hex }[];
-  notes: string[]; later: string[]; gas: bigint; amounts: Record<string, bigint>;
+  transferBlocked?: boolean; notes: string[]; later: string[]; gas: bigint; amounts: Record<string, bigint>;
 };
 export type BatchPlan = {
   chainId: number; account: Address; destination: Address; block: bigint; multisend?: Address;
@@ -94,6 +94,34 @@ export async function readBatchFacts(client: PublicClient, snapshot: AccountSnap
   }
   return facts;
 }
+// Probe ordinary token transfers through the actual Safe, with the same sender
+// and block as the plan. A valid balance does not imply transferability (e.g.
+// locked airdrops). Only GS013 proves an inner-call failure: RPC errors and Safe
+// authorization errors abort preparation, never turn into excluded assets.
+// Multisig proposals retain the existing full-transaction approval/simulation path.
+export async function screenTokenTransfers(client: PublicClient, snapshot: AccountSnapshot, facts: readonly BatchFact[], destination: Address, sender?: Address): Promise<BatchFact[]> {
+  if (snapshot.version === "EOA" || snapshot.threshold !== 1n || !sender || !snapshot.owners.some(owner => same(owner, sender))) return [...facts];
+  const checked: BatchFact[] = [];
+  for (const fact of facts) {
+    if (fact.kind !== "token" || fact.balance <= 0n) { checked.push(fact); continue; }
+    const data = encodeFunctionData({ abi: safeAbi, functionName: "execTransaction", args: [fact.token, 0n,
+      encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [destination, fact.balance] }),
+      0, 0n, 0n, 0n, zeroAddress, zeroAddress, prevalidatedSignature(sender)] });
+    try {
+      await client.call({ account: sender, to: snapshot.address, data, blockNumber: snapshot.block });
+      checked.push({ ...fact, transferBlocked: false });
+    } catch (error) {
+      const failures: unknown[] = [];
+      if (error instanceof BaseError) error.walk(cause => { failures.push(cause); return false; });
+      else failures.push(error);
+      const reverted = failures.some(cause => /\bGS013\b/.test(cause instanceof Error ? cause.message : String(cause)));
+      if (!reverted) throw error;
+      checked.push({ ...fact, transferBlocked: true });
+    }
+  }
+  return checked;
+}
+
 // Ownership, wallet and known content balances of many baskets in bounded
 // aggregate3 chunks at the review block (149 baskets ≈ a few requests).
 async function readBasketFacts(client: PublicClient, owner: Address, baskets: Extract<BatchSource, { kind: "basket" }>[], blockNumber: bigint, multicall3?: Address) {
@@ -175,6 +203,8 @@ function planFact(fact: BatchFact, snapshot: AccountSnapshot, destination: Addre
     }
     case "token": {
       if (fact.balance <= 0n) return entry(fact, { status: "empty" });
+      if (fact.transferBlocked) return entry(fact, { status: "individual", transferBlocked: true,
+        notes: ["This token transfer reverted when simulated through this Safe with the selected destination. It is excluded from this batch, not recorded as migrated. Its balance remains in the source account."] });
       return entry(fact, { outcome: "received", calls: [transfer(fact.token, destination, fact.balance)], callLabels: [`Transfer ${fact.label}`],
         receives: [{ token: fact.token, recipient: destination, minimum: fact.balance }], gas: GAS.transfer, amounts: { [`safe:${fact.token.toLowerCase()}`]: fact.balance } });
     }
