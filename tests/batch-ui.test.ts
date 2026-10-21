@@ -70,6 +70,21 @@ describe("batch review presentation", () => {
   });
 });
 
+describe("network selection in Move funds", () => {
+  it("keeps unselected networks visible with collapsed counts and no migrate action", () => {
+    const items: MigrationItem[] = [100, 137].map(chainId => ({ id: `${chainId}:native`, kind: "native", chainId, symbol: "NATIVE", name: "Native coin", tab: "transfer", order: 0, selectable: true, amount: { value: 1n, decimals: 18 } }));
+    const html = renderToStaticMarkup(createElement(BatchMigration, { lang: "en", busy: false, run: async () => {}, account: safe, wallet: owner, items, chosen: new Set(["137:native"]),
+      destination: dest, guardians: [], overrides: {}, uncertain: false, provider: async () => { throw new Error("no"); }, select: () => {},
+      baskets: { contents: {}, retry: () => {}, prioritize: () => {}, refresh: () => {} }, onSubmitted: () => {}, onConfirmed: () => {}, openItem: () => {}, editSelection: () => {} }));
+    expect(html.match(/type="checkbox"/g)).toHaveLength(2);
+    expect(html.match(/<details class="network-assets">/g)).toHaveLength(2);
+    expect(html).toContain("Gnosis"); expect(html).toContain("Polygon");
+    expect(html).toContain("0 of 1 assets selected"); expect(html).toContain("1 of 1 assets selected");
+    expect(html).not.toContain("Migrate Gnosis →</button>");
+    expect(html).toContain("Migrate Polygon →</button>");
+  });
+});
+
 describe("guardian new-owner input", () => {
   it("shows the guardian error immediately and disables recovery review", () => {
     const html = renderToStaticMarkup(createElement(RecoveryPanel, { snapshot, wallet: owner, lang: "en", busy: false, owner: guardian, setOwner: () => {}, networkIds: [137], selectNetwork: () => {}, prepare: () => {}, review: () => {} }));

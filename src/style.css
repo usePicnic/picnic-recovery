@@ -110,12 +110,12 @@
 .migration-network-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:#FAFAF7;border-bottom:1px solid #EFF1EE}
 .group-check{display:flex;align-items:center;gap:12px;cursor:pointer;min-width:0}.group-check strong{display:block;font-size:15px}.group-check small{display:block;font-size:11px;color:#5A5F58}
 .migration-network input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:#211D1A;margin:0;cursor:pointer}.migration-network input[type=checkbox]:disabled{cursor:not-allowed}
-.status-pill{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:99px;border:1px solid #D8DCD5;background:#EFF1EE;color:#404040;text-align:right}.status-pill.ok{background:#CCFF00;border-color:#9EE510;color:#211D1A}.status-pill.blocked{background:#FEF8E6;border-color:#FBDF88;color:#6D5203}.status-pill.idle{background:transparent;color:#5A5F58}.status-pill .scan-spinner{width:12px;height:12px;border-width:2px}
+.status-pill{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:99px;border:1px solid #D8DCD5;background:#EFF1EE;color:#404040;text-align:right}.status-pill.ok{background:#CCFF00;border-color:#9EE510;color:#211D1A}.status-pill.blocked{background:#FFF1F1;border-color:#E8A6A6;color:#9A1D1D}.status-pill.idle{background:transparent;color:#5A5F58}.status-pill .scan-spinner{width:12px;height:12px;border-width:2px}
 .migration-assets{list-style:none;margin:0;padding:0}.migration-assets li{display:flex;align-items:center;gap:12px;padding:0 18px}.migration-assets li+li{border-top:1px solid #EFF1EE}
 .migration-assets label{display:flex;align-items:center;gap:14px;flex:1;min-width:0;padding:11px 0;cursor:pointer}.migration-assets li.is-disabled label{cursor:default}.migration-assets li:hover{background:#FAFAF7}
 .migration-balance{margin-left:auto;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:14px}
 .token-badge.new{background:#F0FDB9;border-color:#9EE510;color:#211D1A}
-.migration-fee{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:11px 18px;border-top:1px solid #EFF1EE;font-size:12px;background:#F5F7F3}.migration-fee p{margin:0}.migration-fee.fund,.migration-fee.gas-error,.migration-fee.owner,.migration-fee.connect,.migration-fee.recovery,.migration-fee.unsupported{background:#FEF8E6;color:#6D5203}
+.migration-fee{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:11px 18px;border-top:1px solid #EFF1EE;font-size:12px;background:#F5F7F3}.migration-fee p{margin:0}.migration-fee.fund,.migration-fee.gas-error,.migration-fee.owner,.migration-fee.connect,.migration-fee.recovery,.migration-fee.unsupported{background:#FFF1F1;color:#9A1D1D}
 .migration-network .gaps{margin:0;border-radius:0;border-width:1px 0 0}
 .blockers{margin:6px 0 0;padding-left:18px}.diagnosis-continue>div p{margin:0}
 .move-networks{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:18px 0 4px}.move-networks button:not(.text-button){display:inline-flex;align-items:center;gap:8px;background:#FFFFFF;color:#211D1A;border:1px solid #D8DCD5;border-radius:99px;padding:7px 12px;font-size:12px;font-weight:500}.move-networks button:not(.text-button):hover:not(:disabled){background:#F5F7F3}.move-networks button.is-current{border-color:#211D1A;background:#F0FDB9;font-weight:600}.move-networks .text-button{margin-left:6px}
@@ -155,7 +155,7 @@
 .batch-step.current{border:2px solid #211D1A;padding:17px 19px}
 .batch-step.ok{background:#FAFDF0;border-color:#9EE510}
 .batch-step.partial{border-color:#9EE510}
-.batch-step.blocked{border-color:#FBDF88}
+.batch-step.blocked{border-color:#E8A6A6}
 .batch-step-head{display:flex;align-items:center;gap:12px}
 .batch-step-title{display:flex;flex-direction:column;flex:1;min-width:0}
 .batch-step-title small{font-size:11px;color:#5A5F58}
@@ -188,3 +188,19 @@
 .batch-actions{margin-top:14px}.batch-actions .checkbox{margin:14px 0}
 .break{word-break:break-all;max-height:140px;overflow:auto;background:#EFF1EE;padding:8px;border-radius:4px}
 @media(max-width:640px){.batch-step{padding:14px}.batch-step.current{padding:13px}.batch-destination{flex-direction:column;align-items:flex-start}.batch-facts{grid-template-columns:1fr;gap:2px}.batch-facts dd{margin-bottom:8px}.batch-actions .row button{flex:1 1 100%}.migration-assets li>.basket-contents,.migration-assets li>.basket-status{padding-left:0}}
+
+/* Network selection and collapsed asset inventories, shared across migration steps. */
+.network-assets{margin:0;border-top:1px solid #EFF1EE}
+.network-assets>summary{padding:13px 18px;font-size:13px;font-weight:600;color:#40483E;cursor:pointer}
+.network-assets[open]>summary{border-bottom:1px solid #EFF1EE}
+.network-asset-row{display:flex;align-items:center;gap:14px;flex:1;min-width:0;padding:11px 0}
+.network-asset-row .token-text{flex:1;min-width:0}
+.migration-error{color:#9A1D1D}
+.batch-step-head>input{width:18px;height:18px;flex-shrink:0;accent-color:#658C00;cursor:pointer}
+.batch .network-assets{margin-top:12px}
+@media(max-width:640px){.network-assets>summary{padding:12px 14px}.network-asset-row{flex-wrap:wrap}.network-asset-row .migration-balance{padding-left:0}}
+
+.batch-steps{grid-template-columns:minmax(0,1fr)}
+.batch-step{min-width:0}
+.batch-step-head>input{padding:0;margin:0}
+@media(max-width:640px){.batch-step-head{flex-wrap:wrap;gap:8px}.batch-step-head .status-pill{flex-basis:100%;width:fit-content;justify-content:flex-start;text-align:left}.batch-step-title{min-width:90px}}

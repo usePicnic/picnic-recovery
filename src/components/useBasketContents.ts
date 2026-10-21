@@ -19,8 +19,11 @@ export type BasketContentsState = {
 };
 export function useBasketContents(account: Address | undefined, results: readonly NetworkDiagnosis[], overrides: RpcOverrides): BasketContentsState {
   const polygon = results.find(r => r.chainId === 137 && !!account && same(r.account, account));
-  const owner = polygon?.snapshot && account && same(polygon.snapshot.address, account) ? polygon.snapshot.address : undefined;
-  const ids = (polygon?.basketIds ?? []).map(String);
+  // Cache identity follows the account, not a transient diagnosis snapshot.
+  // A rescan briefly omits that snapshot; navigation must never discard reads.
+  const owner = account?.toLowerCase() as Address | undefined;
+  const verified = !!polygon?.snapshot && !!owner && same(polygon.snapshot.address, owner);
+  const ids = (verified ? polygon?.basketIds ?? [] : []).map(String);
   const [contents, setContents] = useState<Record<string, BasketContents>>({});
   const contentsRef = useRef(contents); contentsRef.current = contents;
   // Only the Polygon RPC matters here: other networks' RPC changes keep the reads.
@@ -36,7 +39,10 @@ export function useBasketContents(account: Address | undefined, results: readonl
       ctx.running.add(id);
       const nftId = BigInt(id), owner = ctx.owner;
       const current = () => context.current === ctx && !ctx.controller.signal.aborted;
-      const set = (state: BasketContents) => { if (current()) setContents(old => ({ ...old, [id]: state })); };
+      const set = (state: BasketContents) => { if (current()) {
+        contentsRef.current = { ...contentsRef.current, [id]: state };
+        setContents(contentsRef.current);
+      } };
       set({ ...contentsRef.current[id] ?? { nftId, owner, checked: 0, total: 0, failed: 0, holdings: [] }, status: "loading", error: undefined, holdings: [], checked: 0, failed: 0 });
       void (async () => {
         try {

@@ -4,7 +4,7 @@ import { chains, chainById } from "../catalog/chains";
 import { assertChain, publicClient } from "../core/client";
 import { destinationError } from "../core/destination";
 import type { NetworkDiagnosis } from "../core/diagnosis";
-import { rpcFor, type CustomTokenState, type RpcOverrides } from "./useDiagnosis";
+import { rpcFor, type RpcOverrides } from "./useDiagnosis";
 import { ChainLogo } from "./ChainLogo";
 import { CustomTokenForm, ItemBalance, ItemText, type AddResult } from "./AssetTable";
 import { BasketContentsView } from "./BasketContents";
@@ -88,8 +88,8 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
 
   return <section className="panel prepare">
     <p className="eyebrow">{t("PASSO 1 / PREPARAR CARTEIRAS", "STEP 1 / PREPARE WALLETS")}</p>
-    <h2>{t("Escolha o que migrar. Confira as taxas.", "Choose what to move. Check the fees.")}</h2>
-    <p>{t("Todos os ativos encontrados, em todas as redes. Desmarque o que não quer mover agora. Em cada rede selecionada, a carteira conectada assina e paga o gás na moeda nativa daquela rede.", "Every asset found, on every network. Untick what you do not want to move now. On each selected network, the connected wallet signs and pays gas in that network's native coin.")}</p>
+    <h2>{t("Escolha as redes. Confira as taxas.", "Choose networks. Check the fees.")}</h2>
+    <p>{t("Todos os ativos encontrados, em todas as redes. Desmarque as redes que não quer migrar agora. Em cada rede selecionada, a carteira conectada assina e paga o gás na moeda nativa daquela rede.", "Every asset found, on every network. Untick the networks you do not want to migrate now. On each selected network, the connected wallet signs and pays gas in that network's native coin.")}</p>
 
     {wallet ? <div className="funding-card prepare-wallet">
       <div><span className="small muted">{t("Carteira que assina e paga as taxas", "Wallet signing and paying fees")}</span>
@@ -125,17 +125,17 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
             {state ? <span className={`status-pill ${tone(state)}`}>{state === "gas-loading" || state === "scanning" ? <span className="scan-spinner" aria-hidden="true" /> : null}{labels[state]}</span>
               : <span className="status-pill idle">{t("Não será migrada agora", "Not moving now")}</span>}
           </div>
+          <details className="network-assets"><summary>{t(`${own.length} ${own.length === 1 ? "ativo" : "ativos"} · ver detalhes`, `${own.length} ${own.length === 1 ? "asset" : "assets"} · view details`)}</summary>
           <ul className="migration-assets">
             {own.map(item => <li key={item.id} className={item.selectable ? "" : "is-disabled"}>
-              <label>
-                <input type="checkbox" checked={isSelected(selection, item)} disabled={busy || !item.selectable} onChange={event => select([item.id], event.target.checked)} />
+              <div className="network-asset-row">
                 <ItemText item={item} lang={lang} extra={isNew(selection, item) ? <em className="token-badge new">{t("Novo · não selecionado", "New · not selected")}</em> : undefined} />
                 <span className="migration-balance"><ItemBalance item={item} lang={lang} /></span>
-              </label>
+              </div>
               {item.basketId !== undefined && <BasketContentsView compact contents={item.contents} lang={lang} retry={retryBasket && (() => retryBasket(item.basketId!))} />}
               {item.custom?.status === "error" && <button className="text-button" disabled={busy} onClick={() => retryCustom(item.chainId, item.custom!.address)}>{t("Tentar de novo", "Retry")}</button>}
             </li>)}
-          </ul>
+          </ul></details>
           {partial && <div className="gaps" role="note"><strong>{t("Leitura incompleta nesta rede", "Incomplete reading on this network")}</strong>
             <p className="small">{t("Alguns saldos não puderam ser verificados: são desconhecidos, não zero. Outros ativos podem aparecer ao repetir.", "Some balances could not be verified: they are unknown, not zero. More assets may appear when retrying.")}</p>
             <button className="text-button" disabled={busy} onClick={() => rescan(chain.id)}>{t("Consultar a rede de novo", "Check the network again")}</button></div>}
@@ -158,12 +158,12 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
     <p className="note">{t("Um saldo positivo para taxas não garante todas as retiradas: cada operação é simulada e estimada de novo antes do envio, e a carteira mostra a taxa. Em uma conta antiga sem Safe, a própria conta paga as taxas: deixe uma reserva de gás ao retirar a moeda nativa. Se a conta exigir mais de uma assinatura, os outros owners também precisam aprovar.", "A positive fee balance does not guarantee every withdrawal: each operation is simulated and estimated again before sending, and your wallet shows the fee. For a legacy account without a Safe, the account itself pays fees: leave a gas reserve when withdrawing native coins. If the account requires more than one signature, the other owners must also approve.")}</p>
 
     <div className="diagnosis-continue">
-      <div className="small muted">{chosen.length === 0 ? <p>{t("Selecione ao menos um ativo para continuar.", "Select at least one asset to continue.")}</p>
+      <div className={`small ${blocked.some(entry => !["gas-loading", "scanning"].includes(entry.state)) || destination && destinationProblem ? "migration-error" : "muted"}`} role={blocked.some(entry => !["gas-loading", "scanning"].includes(entry.state)) ? "alert" : "status"}>{chosen.length === 0 ? <p>{t("Selecione ao menos uma rede para continuar.", "Select at least one network to continue.")}</p>
         : blocked.length > 0 ? <><p>{t("Antes de continuar, resolva ou desmarque:", "Before continuing, resolve or untick:")}</p>
-          <ul className="blockers">{blocked.map(entry => <li key={entry.id}>{chainById(entry.id).name}: {labels[entry.state]}</li>)}</ul></>
+          <ul className="blockers">{blocked.map(entry => <li className={["gas-loading", "scanning"].includes(entry.state) ? "muted" : "migration-error"} key={entry.id}>{chainById(entry.id).name}: {labels[entry.state]}</li>)}</ul></>
         : destinationProblem === "guardian" ? <p>{t("O destino é um guardião de recuperação desta conta. Informe outra carteira para continuar.", "The destination is a recovery guardian of this account. Enter another wallet to continue.")}</p>
         : destinationProblem ? <p>{t("Informe um destino válido para continuar.", "Enter a valid destination to continue.")}</p>
-        : <p>{t("Tudo pronto. No próximo passo você revisa um lote por rede, ou retira ativo por ativo.", "All set. Next you review one batch per network, or withdraw assets one by one.")}</p>}</div>
+        : <p>{t("Tudo pronto. No próximo passo, clique em migrar cada rede e confirme na carteira.", "All set. Next, click migrate for each network and confirm in your wallet.")}</p>}</div>
       <button className="next-step" disabled={!canContinue} onClick={next}>{t("Continuar para mover o dinheiro →", "Continue to move funds →")}</button>
     </div>
   </section>;

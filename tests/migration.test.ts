@@ -193,6 +193,9 @@ describe("Prepare wallets view", () => {
     expect(html).toContain("Polygon");
     expect(html).toContain("4</strong> of 6 assets selected");
     expect(html).toContain("Not moving now");
+    expect(html.match(/type="checkbox"/g)).toHaveLength(2);
+    expect(html.match(/<details class="network-assets">/g)).toHaveLength(2);
+    expect(html).toContain("4 assets · view details");
     // Fee check for Gnosis starts automatically; continuing waits for it.
     expect(html).toContain("Gnosis: Checking fee balance");
     expect(html).not.toContain("Polygon: The connected wallet does not control");
@@ -205,7 +208,7 @@ describe("Prepare wallets view", () => {
     expect(html).toContain("Networks with incomplete readings");
     expect(html).toContain("does not mean a zero balance");
     const none = renderToStaticMarkup(createElement(PrepareMigration, props([gnosis()], setSelected(emptySelection(account), migrationItems([gnosis()], []), migrationItems([gnosis()], []).map(i => i.id), false))));
-    expect(none).toContain("Select at least one asset to continue.");
+    expect(none).toContain("Select at least one network to continue.");
   });
 });
 

@@ -26,7 +26,7 @@ type Props = {
   account: Address; wallet?: Address; items: MigrationItem[]; chosen: ReadonlySet<string>; destination: string;
   guardians: readonly Address[]; overrides: RpcOverrides; uncertain: boolean; provider: () => Promise<EIP1193Provider>;
   baskets: BasketContentsState; onSubmitted: (record: SubmittedRecord) => void; onConfirmed: (chainId: number, hash: Hex) => void;
-  openItem: (item: MigrationItem) => void; editSelection: () => void;
+  select?: (ids: string[], value: boolean) => void; openItem: (item: MigrationItem) => void; editSelection: () => void;
 };
 type Stage = "reading" | "wallet" | "network" | "validation" | "simulation" | "signature" | "transaction" | "receipt";
 type ChainState = {
@@ -49,7 +49,7 @@ export function BatchMigration(props: Props) {
   const [state, setState] = useState<Record<number, ChainState>>({});
   const selected = items.filter(item => chosen.has(item.id));
   // A network stays listed after its batch, even if a rescan finds it empty.
-  const networks = chains.map(c => c.id).filter(id => selected.some(item => item.chainId === id) || state[id]?.sent || state[id]?.lastPlan);
+  const networks = chains.map(c => c.id).filter(id => items.some(item => item.chainId === id) || state[id]?.sent || state[id]?.lastPlan);
   const destinationProblem = destinationError(destination, account, wallet, guardians);
   const entry = (id: number): ChainState => state[id] ?? idle();
   const patch = (id: number, value: Partial<ChainState>) => setState(old => ({ ...old, [id]: { ...old[id] ?? idle(), ...value } }));
@@ -76,7 +76,7 @@ export function BatchMigration(props: Props) {
       return changed ? next : old;
     });
   }, [keys]);
-  const current = networks.find(id => !entry(id).done);
+  const current = networks.find(id => selected.some(item => item.chainId === id) && !entry(id).done);
   const anyReading = Object.values(state).some(s => s.status === "reading" || s.status === "sending");
   const pendingBaskets = (id: number) => selected.filter(item => item.chainId === id && item.basketId !== undefined && (!item.contents || item.contents.status === "queued" || item.contents.status === "loading"));
 
@@ -198,31 +198,35 @@ export function BatchMigration(props: Props) {
     {!networks.length && <p className="empty-assets">{t("Nenhum ativo selecionado. Volte a Preparar carteiras para escolher o que migrar.", "No assets selected. Go back to Prepare wallets to choose what to move.")}</p>}
     <ol className="batch-steps">
       {networks.map((chainId, index) => {
-        const chain = chainById(chainId), s = entry(chainId), own = selected.filter(item => item.chainId === chainId);
+        const chain = chainById(chainId), s = entry(chainId), own = selected.filter(item => item.chainId === chainId), available = items.filter(item => item.chainId === chainId);
+        const options = available.filter(item => item.selectable), all = options.length > 0 && own.length === options.length;
         const isCurrent = chainId === current, waiting = pendingBaskets(chainId), working = s.status === "reading" || s.status === "sending";
         const completed = s.done && !batchHasFollowups(s.lastPlan);
         const label = s.done ? completed ? t("Concluída", "Done") : t("Há etapas pendentes", "Follow-up steps remain") : s.status === "ready" ? t("Pronta para migrar", "Ready to migrate") : s.status === "reading" ? t("Lendo…", "Reading…")
           : s.status === "sending" ? t("Enviando…", "Sending…") : s.status === "error" ? t("Precisa de atenção", "Needs attention")
-          : s.sent ? t("Lote confirmado · há itens restantes", "Batch confirmed · items remain") : isCurrent ? t("Próxima", "Next") : t("Aguardando", "Waiting");
+          : !own.length ? t("Não será migrada agora", "Not moving now") : s.sent ? t("Lote confirmado · há itens restantes", "Batch confirmed · items remain") : isCurrent ? t("Próxima", "Next") : t("Aguardando", "Waiting");
         const tone = completed ? "ok" : s.done ? "partial" : s.status === "error" ? "blocked" : working ? "loading" : s.sent ? "partial" : isCurrent ? "current" : "idle";
         return <li key={chainId} className={`batch-step ${tone}`} aria-current={isCurrent ? "step" : undefined} aria-labelledby={`batch-${chainId}`}>
           <div className="batch-step-head">
-            <span className="batch-index" aria-hidden="true">{completed ? "✓" : index + 1}</span>
+            {!props.select && <span className="batch-index" aria-hidden="true">{completed ? "✓" : index + 1}</span>}
+            {props.select && <input type="checkbox" aria-label={t(`Migrar ${chain.name}`, `Migrate ${chain.name}`)} checked={all} disabled={busy || anyReading || uncertain || completed || !options.length}
+              ref={el => { if (el) el.indeterminate = own.length > 0 && !all; }} onChange={() => props.select!(options.map(item => item.id), !all)} />}
             <ChainLogo id={chainId} size={28} />
-            <span className="batch-step-title"><strong id={`batch-${chainId}`}>{chain.name}</strong><small>{t(`${own.length} ativo(s) selecionado(s)`, `${own.length} selected asset(s)`)}{s.sent > 0 ? ` · ${t(`${s.sent} transação(ões) confirmada(s)`, `${s.sent} transaction(s) confirmed`)}` : ""}</small></span>
+            <span className="batch-step-title"><strong id={`batch-${chainId}`}>{chain.name}</strong><small>{t(`${own.length} de ${available.length} ativos selecionados`, `${own.length} of ${available.length} assets selected`)}{s.sent > 0 ? ` · ${t(`${s.sent} transação(ões) confirmada(s)`, `${s.sent} transaction(s) confirmed`)}` : ""}</small></span>
             <span className={`status-pill ${completed ? "ok" : s.status === "error" ? "blocked" : working ? "loading" : "idle"}`}>{working && <span className="scan-spinner" aria-hidden="true" />}{label}</span>
           </div>
           {s.stage && <p className="batch-stage small" role="status">{stageText[s.stage]}</p>}
           {s.error && <p className="small table-error" role="alert">{s.error}</p>}
           {s.confirmed && <p className="small batch-confirmed" role="status">✓ {t("Transação confirmada e recibo conferido", "Transaction confirmed and receipt checked")} · <span className="mono" title={s.confirmed}>{shortAddress(s.confirmed)}</span></p>}
           {s.lastPlan && !s.plan && <Leftovers plan={s.lastPlan} items={items} lang={lang} openItem={props.openItem} />}
-          {!s.plan && !s.done && own.length > 0 && <ul className="batch-selected">{own.map(item => <li key={item.id}>
+          {available.length > 0 && <details className="network-assets"><summary>{t(`${available.length} ${available.length === 1 ? "ativo" : "ativos"} · ver detalhes`, `${available.length} ${available.length === 1 ? "asset" : "assets"} · view details`)}</summary>
+          <ul className="batch-selected">{available.map(item => <li key={item.id}>
             <span className="token-text"><strong>{item.kind === "baskets" ? item.basketId !== undefined ? `${t("Cesta", "Basket")} #${item.basketId}` : t("Cestas a identificar", "Baskets to identify") : item.symbol || item.name}</strong><small>{item.kind === "baskets" ? "" : item.name !== item.symbol ? item.name : ""}</small></span>
             {item.amount && <span className="numeric">{formatAmount(item.amount.value, item.amount.decimals, lang)}</span>}
             {item.basketId !== undefined && <BasketContentsView compact contents={item.contents} lang={lang} retry={() => baskets.retry([item.basketId!])} />}
-          </li>)}</ul>}
-          {s.plan && <PlanView plan={s.plan} snapshot={s.snapshot!} action={s.action} safeTxHash={s.safeTxHash} wallet={wallet} lang={lang} sent={s.sent}
-            items={own} openItem={props.openItem} amount={r => amount(chainId, r)} />}
+          </li>)}</ul></details>}
+          {s.plan && <details className="network-assets"><summary>{t("Detalhes da transação", "Transaction details")}</summary><PlanView plan={s.plan} snapshot={s.snapshot!} action={s.action} safeTxHash={s.safeTxHash} wallet={wallet} lang={lang} sent={s.sent}
+            items={own} openItem={props.openItem} amount={r => amount(chainId, r)} /></details>}
           {!s.done && <div className="batch-actions">
             {waiting.length > 0 && <p className="small muted" role="status">{t(`Aguardando o conteúdo de ${waiting.length} cesta(s) para montar o lote…`, `Waiting for the contents of ${waiting.length} basket(s) to build the batch…`)}
               <button type="button" className="text-button" onClick={() => baskets.prioritize(waiting.map(item => item.basketId!))}>{t("Priorizar", "Prioritize")}</button></p>}

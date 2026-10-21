@@ -328,6 +328,7 @@ export function App() {
             }} />}
           {(step === 0 || step === 2) && <CardAssetForm key={account} lang={lang} disabled={busy || !diagnosis.account} add={diagnosis.addCard} />}
           {step === 3 && diagnosis.account && <BatchMigration lang={lang} busy={busy} run={run} account={diagnosis.account} wallet={walletAddress} items={items} chosen={chosen}
+            select={(ids, value) => { setActiveItem(undefined); setSelectionState(old => setSelected(forAccount(old, account), items, ids, value)); }}
             destination={destination} guardians={guardians} overrides={rpcOverrides} uncertain={uncertain} provider={provider} baskets={baskets}
             onSubmitted={record} onConfirmed={(id, hash) => { confirmed(hash); diagnosis.rescan(id); }}
             openItem={item => { const result = diagnosis.results.find(r => r.chainId === item.chainId); if (result) openAsset(item, result); }}
