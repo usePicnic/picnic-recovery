@@ -14,6 +14,8 @@ npm run build
 node scripts/serve.mjs
 ```
 
+For hosted updates, retain the previous deployment’s `dist/assets/` when building and publishing. `vite build` preserves existing output for this reason. Fresh CI runners must restore those assets before building; never replace a hashed file with different contents. Keep HTML revalidated (`Cache-Control: no-cache`) so new visits use the current entrypoint. Removing old chunks can break tabs that were already open. The app reports module-load failures and offers a manual refresh; it never refreshes automatically during wallet operations.
+
 Open `http://127.0.0.1:4173`. The build contains its own scripts, styles, ABI fragments and catalogues. Keep a copy of the repository and a built archive: package registries, GitHub and the hosted page are not required to run an already-built copy. The archive still requires a local HTTP server; `scripts/serve.mjs` uses only Node built-ins.
 
 ## Use

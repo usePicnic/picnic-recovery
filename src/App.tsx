@@ -1,4 +1,5 @@
 import { displayError } from "./core/errors";
+import { ModuleLoadNotice } from "./components/ModuleLoadNotice";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatUnits, type Address, type EIP1193Provider, type Hex } from "viem";
 import { chains, chainById } from "./catalog/chains";
@@ -259,6 +260,7 @@ export function App() {
       </div>
     </header>
     <main>
+      <ModuleLoadNotice lang={lang} busy={busy} />
       {demo && <p role="status" className="message warning">DEMO · Local Anvil wallet · No real funds</p>}
       <section className="hero">
         <p className="eyebrow">{t("SEU ACESSO INDEPENDENTE", "YOUR INDEPENDENT ACCESS")}</p>
