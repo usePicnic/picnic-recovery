@@ -30,7 +30,7 @@ import { LegacyPanel } from "./components/LegacyPanel";
 import { CallDetails } from "./components/CallDetails";
 import { ChainLogo } from "./components/ChainLogo";
 import { discoverMamo, inspectMamo, withdrawMamo, type MamoPosition } from "./core/mamo";
-import { readProgress, saveProgress, downloadProgress, parseProgress } from "./core/progress";
+import { readProgress, saveProgress } from "./core/progress";
 import type { AccountSnapshot, PreparedAction } from "./core/types";
 
 const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`;
@@ -95,11 +95,10 @@ export function App() {
   const [cardAddress, setCardAddress] = useState("");
   const [cardDelay, setCardDelay] = useState<CardDelay>();
   const [queue, setQueue] = useState<QueuedCall[]>([]);
-  const importRef = useRef<HTMLInputElement>(null);
   const client = useMemo(() => {
     try { return publicClient(chain, rpc); } catch { return undefined; }
   }, [chain, rpc]);
-  useEffect(() => { try { saveProgress(progress); } catch { setError("Local progress could not be saved. Export it before closing this page."); } }, [progress]);
+  useEffect(() => { try { saveProgress(progress); } catch { setError("Local progress could not be saved. Keep transaction hashes from your wallet before closing this page."); } }, [progress]);
   useEffect(() => { setReview(undefined); }, [destination, token, amount, owner, requestId, cardAddress]);
   useEffect(() => { document.documentElement.lang = lang === "pt" ? "pt-BR" : "en"; }, [lang]);
   const [demo, setDemo] = useState(false);
@@ -279,13 +278,6 @@ export function App() {
               <span className="step-number">{index}</span><span>{title}<small>{subtitle}</small></span>
             </button>)}
           </nav>
-          <div className="progress-tools">
-            <div className="row"><button className="text-button" onClick={() => downloadProgress(progress)}>{t("Exportar progresso", "Export progress")}</button>
-              <button className="text-button" disabled={busy} onClick={() => importRef.current?.click()}>{t("Importar", "Import")}</button></div>
-            <input ref={importRef} hidden type="file" accept=".json,application/json" onChange={e => {
-              const file = e.target.files?.[0]; if (file) void run(async () => { const imported = parseProgress(await file.text()); setProgress(imported); const pending = imported.transactions.find(tx => tx.status === "pending"); setLastHash(pending?.hash); setUncertain(Boolean(pending)); resetInspection(); });
-            }} />
-          </div>
           <a className="source-link" href="https://github.com/usePicnic/picnic-recovery" target="_blank" rel="noreferrer">GitHub ↗</a>
         </aside>
         <div className="content">
