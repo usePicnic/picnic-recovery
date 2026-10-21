@@ -249,7 +249,7 @@ export function App() {
   }
   return <ConnectKitProvider theme="minimal" mode="light" options={{
     language: lang === "pt" ? "pt-BR" : "en-US", hideBalance: true,
-    hideNoWalletCTA: true, hideRecentBadge: true, enforceSupportedChains: false,
+    hideNoWalletCTA: true, hideRecentBadge: true, enforceSupportedChains: false, walletConnectName: "WalletConnect",
     disableSiweRedirect: true, embedGoogleFonts: false,
   }}><div className="shell">
     <header>
