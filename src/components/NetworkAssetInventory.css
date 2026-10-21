@@ -1,0 +1,31 @@
+.batch-steps>.batch-step{padding:12px 14px}
+.batch-steps>.batch-step.current{padding:11px 13px}
+.batch-step>.batch-step-head{gap:10px;flex-wrap:nowrap}
+.batch-step-head>.network-inventory-toggle{display:flex;align-items:center;gap:9px;flex:1;min-width:0;padding:4px 0;border:0;border-radius:4px;background:transparent;color:inherit;text-align:left;font:inherit;box-shadow:none}
+.batch-step-head>.network-inventory-toggle:hover:not(:disabled){background:transparent;color:#416500}
+.network-inventory-toggle:focus-visible{outline:2px solid #658C00;outline-offset:4px}
+.network-inventory-toggle:disabled{opacity:1;cursor:default}
+.network-inventory-toggle .chain-logo{flex-shrink:0}
+.network-inventory-title{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.network-inventory-title strong{font-size:15px}
+.network-inventory-title small{font-size:11px;line-height:1.35;color:#5A5F58}
+.network-inventory-chevron{font-size:13px;flex-shrink:0;color:#5A5F58}
+.batch-step>.batch-step-head>.status-pill{flex-shrink:0;max-width:45%;white-space:normal}
+.network-inventory{margin-top:12px;max-height:440px;overflow:auto;border:1px solid #E4E7E1;border-radius:8px}
+.network-inventory[hidden]{display:none}
+.network-inventory-table{width:100%;border-collapse:collapse;font-size:12px}
+.network-inventory-table thead th{position:sticky;top:0;z-index:1;background:#F5F7F3;text-align:left;color:#5A5F58;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px}
+.network-inventory-table th,.network-inventory-table td{padding:10px 12px;vertical-align:top;text-align:left;border-bottom:1px solid #EFF1EE}
+.network-inventory-table th[scope=row]{font-weight:400;min-width:105px}
+.network-inventory-table .numeric{text-align:right;white-space:nowrap}
+.network-inventory-table tbody tr:last-child>*{border-bottom:0}
+.network-inventory-table .basket-status{margin:0 0 6px}
+.network-inventory-table .basket-holdings{margin:4px 0 0}
+.network-inventory-table .token-text{min-width:0}
+@media(max-width:640px){
+  .batch-step>.batch-step-head{gap:8px}
+  .batch-step>.batch-step-head>.status-pill{flex-basis:auto;max-width:36%;padding:4px 7px;font-size:10px}
+  .network-inventory-title{gap:2px 6px}
+  .network-inventory-title strong{font-size:14px}
+  .network-inventory-table th,.network-inventory-table td{padding:9px}
+}

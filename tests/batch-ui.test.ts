@@ -6,6 +6,7 @@ import { PlanView, BlockedTransfers, Leftovers, BatchMigration, batchHasFollowup
 import { RecoveryPanel } from "../src/components/RecoveryPanel";
 import { BasketContentsView } from "../src/components/BasketContents";
 import { DestinationMessage } from "../src/components/DestinationMessage";
+import { NetworkAssetInventory } from "../src/components/NetworkAssetInventory";
 import { planBatch, batchPartAction, type BatchFact } from "../src/core/batch";
 import type { AccountSnapshot, Receive } from "../src/core/types";
 import type { MigrationItem } from "../src/components/migration";
@@ -71,17 +72,48 @@ describe("batch review presentation", () => {
 });
 
 describe("network selection in Move funds", () => {
+  it.each(["queued", "loading"] as const)("does not block migration while basket inventory is %s", status => {
+    const items: MigrationItem[] = [{ id: "137:baskets:712", kind: "baskets", chainId: 137, symbol: "#712", name: "Picnic", tab: "legacy", order: 0, selectable: true,
+      basketId: 712n, contents: { nftId: 712n, owner: safe, status, checked: 0, total: 100, failed: 0, holdings: [] } }];
+    const html = renderToStaticMarkup(createElement(BatchMigration, { lang: "en", busy: false, run: async () => {}, account: safe, wallet: owner, items, chosen: new Set([items[0].id]),
+      destination: dest, guardians: [], overrides: {}, uncertain: false, provider: async () => { throw new Error("no"); }, select: () => {},
+      baskets: { contents: {}, retry: () => {}, prioritize: () => {}, refresh: () => {} }, onSubmitted: () => {}, onConfirmed: () => {}, openItem: () => {}, editSelection: () => {} }));
+    expect(html).toContain('<button type="button" class="next-step">Start · transaction 1 of 1 →</button>');
+    expect(html).not.toContain("to build the batch");
+  });
   it("keeps unselected networks visible with collapsed counts and no migrate action", () => {
     const items: MigrationItem[] = [100, 137].map(chainId => ({ id: `${chainId}:native`, kind: "native", chainId, symbol: "NATIVE", name: "Native coin", tab: "transfer", order: 0, selectable: true, amount: { value: 1n, decimals: 18 } }));
     const html = renderToStaticMarkup(createElement(BatchMigration, { lang: "en", busy: false, run: async () => {}, account: safe, wallet: owner, items, chosen: new Set(["137:native"]),
       destination: dest, guardians: [], overrides: {}, uncertain: false, provider: async () => { throw new Error("no"); }, select: () => {},
       baskets: { contents: {}, retry: () => {}, prioritize: () => {}, refresh: () => {} }, onSubmitted: () => {}, onConfirmed: () => {}, openItem: () => {}, editSelection: () => {} }));
     expect(html.match(/type="checkbox"/g)).toHaveLength(2);
-    expect(html.match(/<details class="network-assets">/g)).toHaveLength(2);
+    expect(html.match(/class="network-inventory-toggle" aria-expanded="false"/g)).toHaveLength(2);
+    expect(html).toContain('aria-controls="network-inventory-100"');
+    expect(html).toContain('id="network-inventory-100" class="network-inventory" hidden=""');
+    expect(html.match(/class="batch-actions"/g)).toHaveLength(1);
     expect(html).toContain("Gnosis"); expect(html).toContain("Polygon");
     expect(html).toContain("0 of 1 assets selected"); expect(html).toContain("1 of 1 assets selected");
     expect(html).not.toContain("Migrate Gnosis →</button>");
     expect(html).toContain("Start · transaction 1 of 1 →</button>");
+  });
+  it("shows balances and basket content in a table only when a network is expanded", () => {
+    const items: MigrationItem[] = [
+      { id: "137:token:usdc", kind: "token", chainId: 137, symbol: "USDC", name: "USD Coin", tab: "transfer", order: 0, selectable: true, amount: { value: 1_000_000n, decimals: 6 } },
+      { id: "137:baskets:712", kind: "baskets", chainId: 137, symbol: "#712", name: "Picnic", tab: "legacy", order: 0, selectable: true, count: "1 NFT", basketId: 712n },
+    ];
+    const props = { id: "inventory", name: "Polygon", items, lang: "en" as const, retry: () => {} };
+    const collapsed = renderToStaticMarkup(createElement(NetworkAssetInventory, { ...props, expanded: false }));
+    expect(collapsed).not.toContain("<table");
+    const expanded = renderToStaticMarkup(createElement(NetworkAssetInventory, { ...props, expanded: true }));
+    expect(expanded).toContain('aria-label="Assets on Polygon"');
+    expect(expanded).toContain('<th scope="col">Asset</th>');
+    expect(expanded).toContain('<th scope="col" class="numeric">Balance</th>');
+    expect(expanded).toContain("Basket contents");
+    expect(expanded).toContain('class="numeric">1</td>');
+    expect(expanded).toContain("Basket #712");
+    expect(expanded).toContain("1 NFT");
+    expect(expanded).toContain("Contents queued for reading");
+    expect(expanded).not.toContain("No balance confirmed");
   });
 });
 

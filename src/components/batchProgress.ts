@@ -7,6 +7,24 @@ import type { MigrationReceipt, Progress } from "../core/types";
 import { basketsId, nativeId, tokenId, type MigrationItem } from "./migration";
 
 export type ConfirmedBatch = { hash: Hex; assets: MigrationReceipt["assets"] };
+
+// Inventory progress is independent of transaction confirmation. Failed reads
+// never fill the bar; a successful chunk contributes within its own basket.
+export function basketReadProgress(items: readonly MigrationItem[]) {
+  let total = 0, complete = 0, loading = 0, queued = 0, failed = 0, value = 0, checked = 0, checks = 0;
+  for (const item of items) {
+    if (item.basketId === undefined) continue;
+    total++;
+    const c = item.contents;
+    if (!c || c.status === "queued") { queued++; continue; }
+    if (c.status === "complete") { complete++; value++; continue; }
+    if (c.status === "error" || c.status === "partial") failed++;
+    else loading++;
+    if (c.total > 0) value += Math.max(0, Math.min(1, (c.checked - c.failed) / c.total));
+    if (c.status === "loading") { checked += c.checked; checks += c.total; }
+  }
+  return { total, complete, loading, queued, failed, value, checked, checks };
+}
 export function confirmedBatches(transactions: Progress["transactions"], chainId: number, account: Address, destination: string): ConfirmedBatch[] {
   const found = new Map<string, ConfirmedBatch>();
   for (const tx of transactions) {

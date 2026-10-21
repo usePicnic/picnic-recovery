@@ -15,6 +15,7 @@ import { rpcFor, type RpcOverrides } from "./useDiagnosis";
 import type { BasketContentsState } from "./useBasketContents";
 import { BasketContentsView } from "./BasketContents";
 import { ChainLogo } from "./ChainLogo";
+import { NetworkAssetInventory } from "./NetworkAssetInventory";
 import { DestinationMessage } from "./DestinationMessage";
 import { formatAmount, shortAddress } from "./format";
 import { displayError } from "../core/errors";
@@ -50,6 +51,7 @@ export function BatchMigration(props: Props) {
   const { lang, busy, run, account, wallet, items, chosen, destination, guardians, overrides, uncertain, baskets } = props;
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [state, setState] = useState<Record<number, ChainState>>({});
+  const [expandedNetworks, setExpandedNetworks] = useState<Record<number, boolean>>({});
   const selected = items.filter(item => chosen.has(item.id));
   const history = (id: number) => confirmedBatches(props.transactions ?? [], id, account, destination);
   // A network stays listed after its batch, even if a rescan finds it empty.
@@ -99,7 +101,6 @@ export function BatchMigration(props: Props) {
   }, [props.transactions]);
   const current = networks.find(id => selected.some(item => item.chainId === id) && !entry(id).done);
   const anyReading = Object.values(state).some(s => s.status === "reading" || s.status === "sending");
-  const pendingBaskets = (id: number) => selected.filter(item => item.chainId === id && item.basketId !== undefined && (!item.contents || item.contents.status === "queued" || item.contents.status === "loading"));
 
   // Human labels for amounts, from what diagnosis and basket reads verified.
   const meta = (chainId: number, token: Address | null): Meta => {
@@ -228,7 +229,7 @@ export function BatchMigration(props: Props) {
       {networks.map((chainId, index) => {
         const chain = chainById(chainId), s = entry(chainId), own = selected.filter(item => item.chainId === chainId), available = items.filter(item => item.chainId === chainId);
         const options = available.filter(item => item.selectable), all = options.length > 0 && own.length === options.length;
-        const isCurrent = chainId === current, waiting = pendingBaskets(chainId), working = s.status === "reading" || s.status === "sending";
+        const isCurrent = chainId === current, working = s.status === "reading" || s.status === "sending";
         const confirmed = history(chainId), sent = confirmed.length;
         const progress = migrationProgress({ history: confirmed, items: own, plan: s.plan ?? s.lastPlan, remainingParts: s.plan?.parts ?? s.remainingParts });
         const completed = s.done && !progress.parts.length && !batchHasFollowups(s.plan ?? s.lastPlan);
@@ -245,29 +246,26 @@ export function BatchMigration(props: Props) {
                 patch(chainId, { done: false, plan: undefined, lastPlan: undefined, remainingParts: undefined });
                 props.select!(options.map(item => item.id), !all);
               }} />}
-            <ChainLogo id={chainId} size={28} />
-            <span className="batch-step-title"><strong id={`batch-${chainId}`}>{chain.name}</strong><small>{t(`${own.length} de ${available.length} ativos selecionados`, `${own.length} of ${available.length} assets selected`)}{sent > 0 ? ` · ${t(`${sent} transação(ões) confirmada(s)`, `${sent} transaction(s) confirmed`)}` : ""}</small></span>
+            <button type="button" className="network-inventory-toggle" aria-expanded={!!expandedNetworks[chainId]} aria-controls={`network-inventory-${chainId}`}
+              aria-label={t(`${expandedNetworks[chainId] ? "Ocultar" : "Ver"} ${available.length} ativos em ${chain.name}`, `${expandedNetworks[chainId] ? "Hide" : "View"} ${available.length} assets on ${chain.name}`)}
+              disabled={!available.length} onClick={() => setExpandedNetworks(old => ({ ...old, [chainId]: !old[chainId] }))}>
+              <ChainLogo id={chainId} size={24} />
+              <span className="network-inventory-title"><strong id={`batch-${chainId}`}>{chain.name}</strong><small>{t(`${own.length} de ${available.length} ativos selecionados`, `${own.length} of ${available.length} assets selected`)}</small></span>
+              {available.length > 0 && <span className="network-inventory-chevron" aria-hidden="true">{expandedNetworks[chainId] ? "▾" : "▸"}</span>}
+            </button>
             <span className={`status-pill ${completed ? "ok" : s.status === "error" ? "blocked" : working ? "loading" : "idle"}`}>{working && <span className="scan-spinner" aria-hidden="true" />}{label}</span>
           </div>
-          {s.stage && <p className="batch-stage small" role="status">{stageText[s.stage]}</p>}
+          <NetworkAssetInventory id={`network-inventory-${chainId}`} name={chain.name} items={available} expanded={!!expandedNetworks[chainId]} lang={lang} retry={id => baskets.retry([id])} />
           {s.error && <p className="small table-error" role="alert">{s.error}</p>}
-          {(own.length > 0 || sent > 0) && <BatchTransactionProgress history={confirmed} progress={progress} chainId={chainId} lang={lang} active={working} awaitingReceipt={s.stage === "receipt"}
+          {(own.length > 0 || sent > 0) && <BatchTransactionProgress history={confirmed} progress={progress} chainId={chainId} lang={lang} active={working} awaitingReceipt={s.stage === "receipt"} items={own} stageLabel={s.stage ? stageText[s.stage] : undefined}
             uncertain={uncertain && !!props.transactions?.some(tx => tx.chainId === chainId && same(tx.account, account) && tx.status === "pending")} />}
           {s.lastPlan && !s.plan && <Leftovers showParts={false} plan={s.lastPlan} items={items} lang={lang} openItem={props.openItem} />}
-          {available.length > 0 && <details className="network-assets"><summary>{t(`${available.length} ${available.length === 1 ? "ativo" : "ativos"} · ver detalhes`, `${available.length} ${available.length === 1 ? "asset" : "assets"} · view details`)}</summary>
-          <ul className="batch-selected">{available.map(item => <li key={item.id}>
-            <span className="token-text"><strong>{item.kind === "baskets" ? item.basketId !== undefined ? `${t("Cesta", "Basket")} #${item.basketId}` : t("Cestas a identificar", "Baskets to identify") : item.symbol || item.name}</strong><small>{item.kind === "baskets" ? "" : item.name !== item.symbol ? item.name : ""}</small></span>
-            {item.amount && <span className="numeric">{formatAmount(item.amount.value, item.amount.decimals, lang)}</span>}
-            {item.basketId !== undefined && <BasketContentsView compact contents={item.contents} lang={lang} retry={() => baskets.retry([item.basketId!])} />}
-          </li>)}</ul></details>}
           {s.plan?.entries.some(e => e.transferBlocked) && <BlockedTransfers plan={s.plan} lang={lang} />}
           {s.plan && <details className="network-assets"><summary>{t("Detalhes da transação", "Transaction details")}</summary><PlanView plan={s.plan} snapshot={s.snapshot!} action={s.action} safeTxHash={s.safeTxHash} wallet={wallet} lang={lang} sent={sent}
             items={own} openItem={props.openItem} amount={r => amount(chainId, r)} /></details>}
-          {(!s.done || progress.blocked.length > 0) && <div className="batch-actions">
-            {waiting.length > 0 && <p className="small muted" role="status">{t(`Aguardando o conteúdo de ${waiting.length} cesta(s) para montar o lote…`, `Waiting for the contents of ${waiting.length} basket(s) to build the batch…`)}
-              <button type="button" className="text-button" onClick={() => baskets.prioritize(waiting.map(item => item.basketId!))}>{t("Priorizar", "Prioritize")}</button></p>}
+          {(!s.done || progress.blocked.length > 0) && (own.length > 0 || s.action) && <div className="batch-actions">
             {(own.length > 0 || s.action) && <button type="button" className={isCurrent ? "next-step" : "outline"}
-              disabled={busy || anyReading || !!destinationProblem || waiting.length > 0 || uncertain}
+              disabled={busy || anyReading || !!destinationProblem || uncertain}
               onClick={() => void migrate(chainId)}>{working ? <><span className="scan-spinner" aria-hidden="true" /> {s.stage ? stageText[s.stage] : t("Preparando…", "Preparing…")}</>
                 : s.done ? t("Verificar ativos bloqueados novamente", "Check blocked assets again") : progress.totalTransactions > 0 ? `${sent > 0 ? t("Continuar", "Continue") : t("Iniciar", "Start")} · ${transactionLabel.toLowerCase()} →` : t(`Migrar ${chain.name} →`, `Migrate ${chain.name} →`)}</button>}
             {s.snapshot && s.snapshot.threshold > 1n && s.action && <button type="button" className="outline" disabled={busy || uncertain || !!destinationProblem}

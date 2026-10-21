@@ -70,3 +70,40 @@ describe("multi-transaction migration progress", () => {
     expect(() => parseProgress(JSON.stringify({ version: 1, accounts: [], transactions: [{ ...receipt, migration: { destination: dest, assets: [{ id: "bad", label: "bad", outcome: "confirmed" }] } }] }))).toThrow("Invalid migration asset history");
   });
 });
+
+describe("progress inside each pending transaction", () => {
+  const basket = (i: number, status: "queued" | "loading" | "complete" | "partial" | "error", checked = 0, failed = 0): MigrationItem => ({ ...items[i], contents: {
+    nftId: BigInt(i), owner: safe, status, checked, total: 100, failed, holdings: [],
+  } });
+  it("shows separate basket counts for each transaction without advancing confirmed transactions", () => {
+    const own = [basket(21, "complete", 100), basket(22, "loading", 40), basket(23, "queued")];
+    const history = confirmedBatches([receipt], 137, safe, dest);
+    const progress = migrationProgress({ history, items: own, remainingParts: [[own[0].id, own[1].id], [own[2].id]] });
+    const html = renderToStaticMarkup(createElement(BatchTransactionProgress, { history, progress, items: own, chainId: 137, lang: "pt", active: false, awaitingReceipt: false, uncertain: false }));
+    expect(html).toContain('value="1" max="3" aria-label="Transações confirmadas"');
+    expect(html).toContain('value="1.4" max="2" aria-label="Leitura das cestas da transação 2"');
+    expect(html).toContain('value="0" max="1" aria-label="Leitura das cestas da transação 3"');
+    expect(html).toContain("1 em leitura · 0 na fila");
+    expect(html).toContain("0 em leitura · 1 na fila");
+    expect(html).toContain("40/100 verificações em andamento");
+    expect(html).toContain("não impede a próxima transação");
+    expect(html).toContain("scan-spinner");
+  });
+  it("shows live preparation stage only on the current transaction with no invented percentage", () => {
+    const progress = migrationProgress({ history: [], items, remainingParts: [[items[0].id], [items[1].id]] });
+    const html = renderToStaticMarkup(createElement(BatchTransactionProgress, { history: [], progress, items, chainId: 137, lang: "pt", active: true, awaitingReceipt: false, uncertain: false, stageLabel: "Simulando a transação…" }));
+    expect(html.match(/class="tx-work"/g)).toHaveLength(1);
+    expect(html).toContain('role="progressbar" aria-label="Simulando a transação…"');
+    expect(html).not.toContain("aria-valuenow");
+    expect(html).toContain('value="0" max="2" aria-label="Transações confirmadas"');
+  });
+  it("keeps incomplete/failed reads below 100% and removes loading after the queue finishes", () => {
+    const own = [basket(21, "partial", 100, 20), basket(22, "error")];
+    const progress = migrationProgress({ history: [], items: own, remainingParts: [own.map(i => i.id)] });
+    const html = renderToStaticMarkup(createElement(BatchTransactionProgress, { history: [], progress, items: own, chainId: 137, lang: "pt", active: false, awaitingReceipt: false, uncertain: false }));
+    expect(html).toContain('value="0.8" max="2"');
+    expect(html).toContain("2 cesta(s) com leitura incompleta");
+    expect(html).not.toContain("scan-spinner");
+    expect(html).not.toContain("em leitura");
+  });
+});
