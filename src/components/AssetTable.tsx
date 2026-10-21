@@ -42,7 +42,9 @@ export function ItemText({ item, lang, extra }: { item: MigrationItem; lang: Lan
   const name = item.kind === "baskets" ? t("Cestas antigas da Picnic", "Legacy Picnic baskets") : item.kind === "mamo" ? item.strategy ? item.name : t("Estratégias MAMO", "MAMO strategies") : item.name;
   const badge = { native: t("Moeda nativa", "Native coin"), investment: t("Investimento", "Investment"), request: t("Pedido em andamento", "Request in progress"),
     card: t("Cartão", "Card"), legacy: t("Cesta", "Basket"), custom: t("Adicionado por você", "Added by you") }[item.badge ?? "native"];
-  return <span className="token-text"><strong>{symbol}</strong><small>{name !== symbol ? name : ""}{item.badge && <em className="token-badge">{badge}</em>}{extra}</small></span>;
+  const description = name.toLocaleLowerCase() !== symbol.toLocaleLowerCase() ? name : "";
+  const showBadge = !!item.badge && item.badge !== "native";
+  return <span className="token-text"><strong>{symbol}</strong>{(description || showBadge || extra) && <small>{description}{showBadge && <em className="token-badge">{badge}</em>}{extra}</small>}</span>;
 }
 export function ItemBalance({ item, lang }: { item: MigrationItem; lang: Lang }) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
@@ -74,7 +76,11 @@ export function AssetTable({ lang, busy, ready, results, custom, open, addCustom
   const scanning = results.some(r => r.status === "queued" || r.status === "scanning");
   return <section className="assets" aria-labelledby="assets-title">
     <div className="section-title"><h3 id="assets-title">{selected ? t("Ativos selecionados", "Selected assets") : t("Ativos encontrados", "Assets found")}</h3>{rows.length > 0 && <span className="chip">{rows.length} {t(rows.length === 1 ? "item" : "itens", rows.length === 1 ? "item" : "items")}</span>}</div>
-    {rows.length > 0 ? <div className="table-wrap"><table className="asset-table">
+    {ready && scanning && <p className="asset-loading" role="status"><span className="scan-spinner" aria-hidden="true" />{rows.length > 0
+      ? t("Buscando os demais ativos…", "Finding the remaining assets…")
+      : t("Procurando ativos em todas as redes…", "Looking for assets on every network…")}</p>}
+    {rows.length > 0 ? <div className="table-wrap" aria-busy={scanning}><table className={`asset-table${showActions ? " with-actions" : ""}`}>
+      <colgroup><col className="asset-column" /><col className="network-column" /><col className="balance-column" />{showActions && <col className="action-column" />}</colgroup>
       <caption className="sr-only">{t("Ativos por token e rede", "Assets by token and network")}</caption>
       <thead><tr><th scope="col">{t("Ativo", "Asset")}</th><th scope="col">{t("Rede", "Network")}</th><th scope="col" className="numeric">{t("Saldo", "Balance")}</th>{showActions && <th scope="col"><span className="sr-only">{t("Ação", "Action")}</span></th>}</tr></thead>
       <tbody>{visible.map(row => <tr key={row.id}>
@@ -84,10 +90,9 @@ export function AssetTable({ lang, busy, ready, results, custom, open, addCustom
         <td data-label={t("Saldo", "Balance")} className="numeric"><ItemBalance item={row} lang={lang} /></td>
         {showActions && <td className="action-cell">{action(row)}</td>}
       </tr>)}</tbody>
-    </table></div> : <p className="empty-assets">{selected ? t("Nenhum ativo selecionado. Volte a Preparar carteiras para escolher o que migrar.", "No assets selected. Go back to Prepare wallets to choose what to move.")
+    </table></div> : ready && scanning ? null : <p className="empty-assets">{selected ? t("Nenhum ativo selecionado. Volte a Preparar carteiras para escolher o que migrar.", "No assets selected. Go back to Prepare wallets to choose what to move.")
       : !ready ? t("Conecte uma carteira para ver os ativos.", "Connect a wallet to see assets.") : scanning ? t("Procurando ativos em todas as redes…", "Looking for assets on every network…") : t("Nenhum ativo encontrado nas redes verificadas. Veja abaixo o que não pôde ser verificado.", "No assets found on the checked networks. See below what could not be verified.")}</p>}
     {rows.length > PAGE && <button className="text-button" onClick={() => setAll(!all)}>{all ? t("Mostrar menos", "Show fewer") : t(`Mostrar todos (${rows.length})`, `Show all (${rows.length})`)}</button>}
-    {ready && scanning && rows.length > 0 && !selected && <p className="small muted" role="status">{t("Mais ativos podem aparecer enquanto as redes são consultadas.", "More assets may appear while networks are being checked.")}</p>}
     {!selected && <CustomTokenForm lang={lang} busy={busy || !ready} add={addCustom} />}
     {!showActions && custom.length > 0 && <details className="custom-token-management">
       <summary>{t("Gerenciar tokens adicionados", "Manage added tokens")}</summary>
