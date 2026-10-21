@@ -81,7 +81,7 @@ describe("network selection in Move funds", () => {
     expect(html).toContain("Gnosis"); expect(html).toContain("Polygon");
     expect(html).toContain("0 of 1 assets selected"); expect(html).toContain("1 of 1 assets selected");
     expect(html).not.toContain("Migrate Gnosis →</button>");
-    expect(html).toContain("Migrate Polygon →</button>");
+    expect(html).toContain("Start · transaction 1 of 1 →</button>");
   });
 });
 

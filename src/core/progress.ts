@@ -1,6 +1,6 @@
 import { isAddress, isHash } from "viem";
 import type { ReceiptExpectation } from "./receipts";
-import type { Progress } from "./types";
+import type { MigrationReceipt, Progress } from "./types";
 import { chains } from "../catalog/chains";
 
 const KEY = "picnic-recovery-v1";
@@ -60,8 +60,17 @@ export function parseProgress(text: string): Progress {
       });
     }
     const status = row.status === "confirmed" || row.status === "reverted" ? row.status : "pending";
+    let migration: MigrationReceipt | undefined;
+    if (row.migration && typeof row.migration === "object") {
+      const value = row.migration as Record<string, unknown>;
+      if (!isAddress(String(value.destination)) || !Array.isArray(value.assets) || value.assets.length > 200) throw new Error("Invalid migration history");
+      migration = { destination: String(value.destination) as `0x${string}`, assets: value.assets.map(asset => {
+        if (!asset || typeof asset.id !== "string" || asset.id.length > 200 || typeof asset.label !== "string" || asset.label.length > 160 || !["received", "shares", "queued", "basket"].includes(asset.outcome)) throw new Error("Invalid migration asset history");
+        return { id: asset.id, label: asset.label, outcome: asset.outcome };
+      }) };
+    }
     return { hash: String(row.hash) as `0x${string}`, account: String(row.account) as `0x${string}`,
-      chainId: Number(row.chainId), label: String(row.label ?? "").slice(0, 160), status, expectation };
+      chainId: Number(row.chainId), label: String(row.label ?? "").slice(0, 160), status, expectation, migration };
   });
   return { version: 1, accounts, transactions };
 }

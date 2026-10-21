@@ -58,7 +58,7 @@ export type BatchPlan = {
 
 // Conservative per-call gas heuristics used only to split very large batches
 // into visible parts. Each part is still simulated and estimated before sending.
-const GAS = { transfer: 70_000n, share: 90_000n, staking: 160_000n, mamo: 260_000n, basket: 220_000n, basketToken: 90_000n, enqueue: 130_000n, base: 60_000n };
+export const GAS = { transfer: 70_000n, share: 90_000n, staking: 160_000n, mamo: 260_000n, basket: 220_000n, basketToken: 90_000n, enqueue: 130_000n, base: 60_000n };
 export const PART_GAS_BUDGET = 8_000_000n;
 const ALL = 100_000n; // withdrawPortfolio share scale: 100000 = 100%
 

@@ -67,8 +67,13 @@ export type PreparedAction = {
   revalidate?: () => Promise<void>;
 };
 export type StoredAccount = { address: Address; chainId: number; label: string };
+// Display-only migration history. Never used to authorize or skip a transfer.
+export type MigrationReceipt = {
+  destination: Address;
+  assets: { id: string; label: string; outcome: "received" | "shares" | "queued" | "basket" }[];
+};
 export type Progress = {
   version: 1;
   accounts: StoredAccount[];
-  transactions: { chainId: number; hash: Hex; account: Address; label: string; status: "pending" | "confirmed" | "reverted"; expectation?: ReceiptExpectation }[];
+  transactions: { chainId: number; hash: Hex; account: Address; label: string; status: "pending" | "confirmed" | "reverted"; expectation?: ReceiptExpectation; migration?: MigrationReceipt }[];
 };

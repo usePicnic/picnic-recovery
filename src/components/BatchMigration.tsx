@@ -8,7 +8,7 @@ import { batchPartAction, includedEntries, planBatch, readBatchFacts, screenAsse
 import { approvedMultiSend, findMultiSend } from "../core/multisend";
 import { destinationError } from "../core/destination";
 import type { ReceiptExpectation } from "../core/receipts";
-import type { AccountSnapshot, PreparedAction, Receive } from "../core/types";
+import type { AccountSnapshot, PreparedAction, Receive, Progress, MigrationReceipt } from "../core/types";
 import { batchSources, positionId, type MigrationItem } from "./migration";
 import { products } from "../catalog/products";
 import { rpcFor, type RpcOverrides } from "./useDiagnosis";
@@ -19,9 +19,13 @@ import { DestinationMessage } from "./DestinationMessage";
 import { formatAmount, shortAddress } from "./format";
 import { displayError } from "../core/errors";
 
+import { confirmedBatches, migrationProgress } from "./batchProgress";
+import { BatchTransactionProgress } from "./BatchTransactionProgress";
+
 type Lang = "pt" | "en";
-export type SubmittedRecord = { chainId: number; account: Address; label: string; hash: Hex; expectation?: ReceiptExpectation };
+export type SubmittedRecord = { chainId: number; account: Address; label: string; hash: Hex; expectation?: ReceiptExpectation; migration?: MigrationReceipt };
 type Props = {
+  transactions?: Progress["transactions"];
   lang: Lang; busy: boolean; run: (task: () => Promise<void>) => Promise<void>;
   account: Address; wallet?: Address; items: MigrationItem[]; chosen: ReadonlySet<string>; destination: string;
   guardians: readonly Address[]; overrides: RpcOverrides; uncertain: boolean; provider: () => Promise<EIP1193Provider>;
@@ -35,21 +39,21 @@ type ChainState = {
   plan?: BatchPlan; action?: PreparedAction; snapshot?: AccountSnapshot; safeTxHash?: Hex; key?: string;
   error?: string; stage?: Stage;
   // History survives rescans that empty the network after sending.
-  sent: number; confirmed?: Hex; lastPlan?: BatchPlan; done?: boolean;
+  confirmed?: Hex; submitted?: Hex; lastPlan?: BatchPlan; remainingParts?: string[][]; done?: boolean;
 };
 type Meta = { symbol: string; decimals?: number };
-const idle = (): ChainState => ({ status: "idle", sent: 0 });
+const idle = (): ChainState => ({ status: "idle" });
 
-// Primary Move funds flow: one reviewed, grouped Safe transaction per network,
-// network after network. Very large batches are split into visible parts.
+// Primary Move funds flow: an explicit transaction sequence for each network.
 // Nothing is read for review, signed or sent without an explicit click.
 export function BatchMigration(props: Props) {
   const { lang, busy, run, account, wallet, items, chosen, destination, guardians, overrides, uncertain, baskets } = props;
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [state, setState] = useState<Record<number, ChainState>>({});
   const selected = items.filter(item => chosen.has(item.id));
+  const history = (id: number) => confirmedBatches(props.transactions ?? [], id, account, destination);
   // A network stays listed after its batch, even if a rescan finds it empty.
-  const networks = chains.map(c => c.id).filter(id => items.some(item => item.chainId === id) || state[id]?.sent || state[id]?.lastPlan);
+  const networks = chains.map(c => c.id).filter(id => items.some(item => item.chainId === id) || history(id).length || state[id]?.lastPlan);
   const destinationProblem = destinationError(destination, account, wallet, guardians);
   const entry = (id: number): ChainState => state[id] ?? idle();
   const patch = (id: number, value: Partial<ChainState>) => setState(old => ({ ...old, [id]: { ...old[id] ?? idle(), ...value } }));
@@ -69,13 +73,30 @@ export function BatchMigration(props: Props) {
       const next = { ...old };
       for (const [id, s] of Object.entries(old)) {
         if ((s.status === "ready" || s.status === "reading" || s.status === "error") && s.key !== contextKey(Number(id))) {
-          next[Number(id)] = { ...s, status: "idle", plan: undefined, action: undefined, safeTxHash: undefined, stage: undefined, error: undefined, key: undefined };
+          next[Number(id)] = { ...s, status: "idle", plan: undefined, action: undefined, safeTxHash: undefined, stage: undefined, error: undefined, key: undefined, done: false, remainingParts: undefined };
           changed = true;
         }
       }
       return changed ? next : old;
     });
   }, [keys]);
+  // A receipt checked after a timeout completes the same step; it must not
+  // remain in the upcoming sequence or be offered for resubmission.
+  useEffect(() => {
+    setState(old => {
+      let changed = false;
+      const next = { ...old };
+      for (const [id, s] of Object.entries(old)) {
+        const tx = props.transactions?.find(tx => tx.hash === s.submitted);
+        if (!tx || tx.status === "pending" || !s.lastPlan) continue;
+        changed = true;
+        next[Number(id)] = { ...s, submitted: undefined, error: undefined,
+          remainingParts: tx.status === "confirmed" ? s.lastPlan.parts.slice(1) : s.lastPlan.parts,
+          done: tx.status === "confirmed" && s.lastPlan.parts.length <= 1 };
+      }
+      return changed ? next : old;
+    });
+  }, [props.transactions]);
   const current = networks.find(id => selected.some(item => item.chainId === id) && !entry(id).done);
   const anyReading = Object.values(state).some(s => s.status === "reading" || s.status === "sending");
   const pendingBaskets = (id: number) => selected.filter(item => item.chainId === id && item.basketId !== undefined && (!item.contents || item.contents.status === "queued" || item.contents.status === "loading"));
@@ -122,7 +143,7 @@ export function BatchMigration(props: Props) {
         patch(chainId, { stage: "screening" });
         const checked = initial.unavailable ? facts : await screenAssetTransfers(client, snapshot, facts, initial.destination, wallet, multisend);
         const plan = planBatch({ snapshot, destination, facts: checked, multisend, guardians });
-        const included = includedEntries(plan, 0), sent = entry(chainId).sent;
+        const included = includedEntries(plan, 0), sent = history(chainId).length;
         let action: PreparedAction | undefined, safeTxHash: Hex | undefined;
         if (!plan.unavailable && included.length) {
           const parts = plan.parts.length + sent;
@@ -136,7 +157,7 @@ export function BatchMigration(props: Props) {
           if (!mounted.current) return;
           throw new Error(t("A conta ou a seleção mudou. Clique em migrar novamente.", "The account or selection changed. Click migrate again."));
         }
-        const prepared: ChainState = { ...entry(chainId), status: "ready", stage: undefined, plan, action, snapshot, safeTxHash, key };
+        const prepared: ChainState = { ...entry(chainId), status: "ready", stage: undefined, plan, action, snapshot, safeTxHash, key, done: !action, remainingParts: plan.parts };
         patch(chainId, prepared);
         // The click authorizes opening the selected wallet. No second UI gate.
         if (action) { sending = true; await send(chainId, prepared, approveOnly); }
@@ -155,8 +176,9 @@ export function BatchMigration(props: Props) {
       const client = publicClient(chainById(chainId), rpcFor(chainId, overrides));
       const onSubmitted = (hash: Hex, expectation?: ReceiptExpectation) => {
         submitted = hash;
-        patch(chainId, { stage: "receipt" });
-        props.onSubmitted({ chainId, account: action.account, label: approveOnly ? `Approve ${action.label}` : action.label, hash, expectation });
+        patch(chainId, { stage: "receipt", submitted: approveOnly ? undefined : hash });
+        props.onSubmitted({ chainId, account: action.account, label: approveOnly ? `Approve ${action.label}` : action.label, hash, expectation,
+          migration: approveOnly ? undefined : { destination: plan.destination, assets: includedEntries(plan, 0).map(e => ({ id: e.id, label: e.label, outcome: e.outcome ?? "received" })) } });
       };
       const receipt = approveOnly ? await approveSafeProposal(client, await props.provider(), action, onSubmitted)
         : await sendAction(client, await props.provider(), action, { onSubmitted, onSigning: stage => patch(chainId, { stage }) });
@@ -164,15 +186,16 @@ export function BatchMigration(props: Props) {
       if (approveOnly) { patch(chainId, { status: "ready", stage: undefined }); return; }
       // Transferred NFTs no longer belong to this Safe; diagnosis removes them.
       // Keep the existing content cache instead of reloading every basket.
-      // Done only when nothing selected remains for later or individual steps.
-      const leftovers = plan.parts.length > 1 || batchHasFollowups(plan);
+      // Finish this transaction sequence; blocked assets and later steps remain
+      // visible separately and keep the network from being labelled complete.
+      const leftovers = plan.parts.length > 1;
       patch(chainId, { status: "idle", stage: undefined, plan: undefined, action: undefined, safeTxHash: undefined, key: undefined,
-        sent: s.sent + 1, confirmed: receipt.transactionHash, lastPlan: plan, done: !leftovers });
+        confirmed: receipt.transactionHash, submitted: undefined, lastPlan: plan, remainingParts: plan.parts.slice(1), done: !leftovers });
     } catch (error) {
       const message = displayError(error, lang);
       // Once submitted, this reviewed transaction is never offered again: the
       // pending receipt must be checked first (no automatic resubmission).
-      if (submitted) patch(chainId, { status: "idle", stage: undefined, plan: undefined, action: undefined, safeTxHash: undefined, key: undefined, lastPlan: plan,
+      if (submitted) patch(chainId, { status: "idle", stage: undefined, plan: undefined, action: undefined, safeTxHash: undefined, key: undefined, lastPlan: plan, remainingParts: plan.parts,
         error: t(`Transação enviada (${shortAddress(submitted)}), mas o resultado não foi confirmado: ${message}. Confira o recibo antes de continuar.`, `Transaction submitted (${shortAddress(submitted)}), but its result was not confirmed: ${message}. Check the receipt before continuing.`) });
       else patch(chainId, { status: "ready", stage: undefined, error: message });
       throw error;
@@ -192,9 +215,9 @@ export function BatchMigration(props: Props) {
   };
   return <section className="panel batch" aria-labelledby="batch-title">
     <p className="eyebrow">{t("PASSO 2 / MOVER O DINHEIRO", "STEP 2 / MOVE FUNDS")}</p>
-    <h2 id="batch-title">{t("Migre por rede, em uma transação.", "Move each network in one transaction.")}</h2>
-    <p>{t("Simulamos a migração de cada ativo. Os que falharem ficam como pendência; os demais são agrupados em uma transação da Safe por rede. Antes do envio, a transação inteira é simulada; se a simulação falhar, nada é enviado. Depois da confirmação, o recibo é conferido item por item. Clique em migrar e confirme na sua carteira; nada é enviado sozinho.",
-      "We simulate each asset migration. Assets that fail stay pending; the others are grouped into one Safe transaction per network. Before sending, the whole transaction is simulated; if the simulation fails, nothing is sent. After confirmation, the receipt is checked item by item. Click migrate and confirm in your wallet; nothing is sent on its own.")}</p>
+    <h2 id="batch-title">{t("Uma rede. Uma transação por vez.", "One network. One transaction at a time.")}</h2>
+    <p>{t("Agrupamos seus ativos em transações por rede. Redes com muitos ativos precisam de várias confirmações na carteira. Acompanhe cada transação abaixo e continue até terminar. Ativos bloqueados ficam separados e não contam como migrados.",
+      "We group your assets into transactions by network. Networks with many assets need several wallet confirmations. Follow each transaction below and continue until finished. Blocked assets stay separate and are never counted as migrated.")}</p>
     <div className="batch-destination">
       <div><span className="small muted">{t("Destino em todas as redes", "Destination on every network")}</span><p className="mono">{destination || "—"}</p></div>
       <button type="button" className="text-button" disabled={busy} onClick={props.editSelection}>{t("Editar seleção ou destino", "Edit selection or destination")}</button>
@@ -206,24 +229,31 @@ export function BatchMigration(props: Props) {
         const chain = chainById(chainId), s = entry(chainId), own = selected.filter(item => item.chainId === chainId), available = items.filter(item => item.chainId === chainId);
         const options = available.filter(item => item.selectable), all = options.length > 0 && own.length === options.length;
         const isCurrent = chainId === current, waiting = pendingBaskets(chainId), working = s.status === "reading" || s.status === "sending";
-        const completed = s.done && !batchHasFollowups(s.lastPlan);
+        const confirmed = history(chainId), sent = confirmed.length;
+        const progress = migrationProgress({ history: confirmed, items: own, plan: s.plan ?? s.lastPlan, remainingParts: s.plan?.parts ?? s.remainingParts });
+        const completed = s.done && !progress.parts.length && !batchHasFollowups(s.plan ?? s.lastPlan);
+        const transactionLabel = t(`Transação ${sent + 1} de ${progress.totalTransactions}`, `Transaction ${sent + 1} of ${progress.totalTransactions}`);
         const label = s.done ? completed ? t("Concluída", "Done") : t("Há etapas pendentes", "Follow-up steps remain") : s.status === "ready" ? t("Pronta para migrar", "Ready to migrate") : s.status === "reading" ? t("Lendo…", "Reading…")
           : s.status === "sending" ? t("Enviando…", "Sending…") : s.status === "error" ? t("Precisa de atenção", "Needs attention")
-          : !own.length ? t("Não será migrada agora", "Not moving now") : s.sent ? t("Lote confirmado · há itens restantes", "Batch confirmed · items remain") : isCurrent ? t("Próxima", "Next") : t("Aguardando", "Waiting");
-        const tone = completed ? "ok" : s.done ? "partial" : s.status === "error" ? "blocked" : working ? "loading" : s.sent ? "partial" : isCurrent ? "current" : "idle";
+          : !own.length ? t("Não será migrada agora", "Not moving now") : sent ? t(`${progress.parts.length} transação(ões) restante(s)`, `${progress.parts.length} transaction(s) remaining`) : isCurrent ? t("Próxima", "Next") : t("Aguardando", "Waiting");
+        const tone = completed ? "ok" : s.done ? "partial" : s.status === "error" ? "blocked" : working ? "loading" : sent ? "partial" : isCurrent ? "current" : "idle";
         return <li key={chainId} className={`batch-step ${tone}`} aria-current={isCurrent ? "step" : undefined} aria-labelledby={`batch-${chainId}`}>
           <div className="batch-step-head">
             {!props.select && <span className="batch-index" aria-hidden="true">{completed ? "✓" : index + 1}</span>}
             {props.select && <input type="checkbox" aria-label={t(`Migrar ${chain.name}`, `Migrate ${chain.name}`)} checked={all} disabled={busy || anyReading || uncertain || completed || !options.length}
-              ref={el => { if (el) el.indeterminate = own.length > 0 && !all; }} onChange={() => props.select!(options.map(item => item.id), !all)} />}
+              ref={el => { if (el) el.indeterminate = own.length > 0 && !all; }} onChange={() => {
+                patch(chainId, { done: false, plan: undefined, lastPlan: undefined, remainingParts: undefined });
+                props.select!(options.map(item => item.id), !all);
+              }} />}
             <ChainLogo id={chainId} size={28} />
-            <span className="batch-step-title"><strong id={`batch-${chainId}`}>{chain.name}</strong><small>{t(`${own.length} de ${available.length} ativos selecionados`, `${own.length} of ${available.length} assets selected`)}{s.sent > 0 ? ` · ${t(`${s.sent} transação(ões) confirmada(s)`, `${s.sent} transaction(s) confirmed`)}` : ""}</small></span>
+            <span className="batch-step-title"><strong id={`batch-${chainId}`}>{chain.name}</strong><small>{t(`${own.length} de ${available.length} ativos selecionados`, `${own.length} of ${available.length} assets selected`)}{sent > 0 ? ` · ${t(`${sent} transação(ões) confirmada(s)`, `${sent} transaction(s) confirmed`)}` : ""}</small></span>
             <span className={`status-pill ${completed ? "ok" : s.status === "error" ? "blocked" : working ? "loading" : "idle"}`}>{working && <span className="scan-spinner" aria-hidden="true" />}{label}</span>
           </div>
           {s.stage && <p className="batch-stage small" role="status">{stageText[s.stage]}</p>}
           {s.error && <p className="small table-error" role="alert">{s.error}</p>}
-          {s.confirmed && <p className="small batch-confirmed" role="status">✓ {t("Transação confirmada e recibo conferido", "Transaction confirmed and receipt checked")} · <span className="mono" title={s.confirmed}>{shortAddress(s.confirmed)}</span></p>}
-          {s.lastPlan && !s.plan && <Leftovers plan={s.lastPlan} items={items} lang={lang} openItem={props.openItem} />}
+          {(own.length > 0 || sent > 0) && <BatchTransactionProgress history={confirmed} progress={progress} chainId={chainId} lang={lang} active={working} awaitingReceipt={s.stage === "receipt"}
+            uncertain={uncertain && !!props.transactions?.some(tx => tx.chainId === chainId && same(tx.account, account) && tx.status === "pending")} />}
+          {s.lastPlan && !s.plan && <Leftovers showParts={false} plan={s.lastPlan} items={items} lang={lang} openItem={props.openItem} />}
           {available.length > 0 && <details className="network-assets"><summary>{t(`${available.length} ${available.length === 1 ? "ativo" : "ativos"} · ver detalhes`, `${available.length} ${available.length === 1 ? "asset" : "assets"} · view details`)}</summary>
           <ul className="batch-selected">{available.map(item => <li key={item.id}>
             <span className="token-text"><strong>{item.kind === "baskets" ? item.basketId !== undefined ? `${t("Cesta", "Basket")} #${item.basketId}` : t("Cestas a identificar", "Baskets to identify") : item.symbol || item.name}</strong><small>{item.kind === "baskets" ? "" : item.name !== item.symbol ? item.name : ""}</small></span>
@@ -231,18 +261,17 @@ export function BatchMigration(props: Props) {
             {item.basketId !== undefined && <BasketContentsView compact contents={item.contents} lang={lang} retry={() => baskets.retry([item.basketId!])} />}
           </li>)}</ul></details>}
           {s.plan?.entries.some(e => e.transferBlocked) && <BlockedTransfers plan={s.plan} lang={lang} />}
-          {s.plan && <details className="network-assets"><summary>{t("Detalhes da transação", "Transaction details")}</summary><PlanView plan={s.plan} snapshot={s.snapshot!} action={s.action} safeTxHash={s.safeTxHash} wallet={wallet} lang={lang} sent={s.sent}
+          {s.plan && <details className="network-assets"><summary>{t("Detalhes da transação", "Transaction details")}</summary><PlanView plan={s.plan} snapshot={s.snapshot!} action={s.action} safeTxHash={s.safeTxHash} wallet={wallet} lang={lang} sent={sent}
             items={own} openItem={props.openItem} amount={r => amount(chainId, r)} /></details>}
-          {!s.done && <div className="batch-actions">
+          {(!s.done || progress.blocked.length > 0) && <div className="batch-actions">
             {waiting.length > 0 && <p className="small muted" role="status">{t(`Aguardando o conteúdo de ${waiting.length} cesta(s) para montar o lote…`, `Waiting for the contents of ${waiting.length} basket(s) to build the batch…`)}
               <button type="button" className="text-button" onClick={() => baskets.prioritize(waiting.map(item => item.basketId!))}>{t("Priorizar", "Prioritize")}</button></p>}
             {(own.length > 0 || s.action) && <button type="button" className={isCurrent ? "next-step" : "outline"}
               disabled={busy || anyReading || !!destinationProblem || waiting.length > 0 || uncertain}
               onClick={() => void migrate(chainId)}>{working ? <><span className="scan-spinner" aria-hidden="true" /> {s.stage ? stageText[s.stage] : t("Preparando…", "Preparing…")}</>
-                : s.sent > 0 ? t("Migrar o restante desta rede →", "Migrate the rest of this network →") : t(`Migrar ${chain.name} →`, `Migrate ${chain.name} →`)}</button>}
+                : s.done ? t("Verificar ativos bloqueados novamente", "Check blocked assets again") : progress.totalTransactions > 0 ? `${sent > 0 ? t("Continuar", "Continue") : t("Iniciar", "Start")} · ${transactionLabel.toLowerCase()} →` : t(`Migrar ${chain.name} →`, `Migrate ${chain.name} →`)}</button>}
             {s.snapshot && s.snapshot.threshold > 1n && s.action && <button type="button" className="outline" disabled={busy || uncertain || !!destinationProblem}
               onClick={() => void migrate(chainId, true)}>{t("Registrar minha aprovação", "Register my approval")}</button>}
-            {s.status === "ready" && !s.action && s.plan && <button type="button" className="outline" disabled={busy} onClick={() => patch(chainId, { done: true, lastPlan: s.plan, plan: undefined, status: "idle" })}>{t("Seguir para a próxima rede", "Continue to the next network")}</button>}
           </div>}
         </li>;
       })}
@@ -280,10 +309,10 @@ function Notes({ entry: e, lang }: { entry: BatchEntry; lang: Lang }) {
 }
 
 // After a confirmed batch: what was not part of it stays visible with its next step.
-export function Leftovers({ plan, items, lang, openItem }: { plan: BatchPlan; items: MigrationItem[]; lang: Lang; openItem: (item: MigrationItem) => void }) {
+export function Leftovers({ plan, items, lang, openItem, showParts = true }: { showParts?: boolean; plan: BatchPlan; items: MigrationItem[]; lang: Lang; openItem: (item: MigrationItem) => void }) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const rest = plan.entries.filter(e => e.status === "individual" || e.status === "later");
-  const remainingParts = Math.max(0, plan.parts.length - 1);
+  const remainingParts = showParts ? Math.max(0, plan.parts.length - 1) : 0;
   if (!rest.length && !remainingParts && !plan.entries.some(e => e.status === "included" && e.later.length)) return null;
   return <div className={`batch-later${rest.some(entry => entry.transferBlocked) ? " has-blocked" : ""}`}>
     <strong>{t("Ainda falta nesta rede", "Still to do on this network")}</strong>

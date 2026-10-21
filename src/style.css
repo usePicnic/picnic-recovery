@@ -173,6 +173,15 @@
 .batch-step.current .batch-index,.batch-step.ok .batch-index{background:#CCFF00;border-color:#9EE510}
 .batch-stage{margin:12px 0 0;padding:8px 12px;background:#F0FDB9;border-radius:6px}
 .batch-confirmed{margin:10px 0 0;color:#23684C}
+.transaction-progress{margin-top:18px;padding:18px;background:#F5F7F3;border:1px solid #E4E7E1;border-radius:10px}
+.transaction-progress-heading{display:flex;align-items:baseline;justify-content:space-between;gap:6px 16px;flex-wrap:wrap}.transaction-progress-heading strong{font-size:14px}.transaction-progress-heading>span{font-size:12px;color:#5A5F58}
+.transaction-progress>progress{display:block;appearance:none;width:100%;height:7px;margin:12px 0 0;border:0;border-radius:99px;overflow:hidden;background:#D8DCD5;accent-color:#CCFF00}
+.transaction-progress>progress::-webkit-progress-bar{background:#D8DCD5}.transaction-progress>progress::-webkit-progress-value{background:#CCFF00}.transaction-progress>progress::-moz-progress-bar{background:#CCFF00}
+.transaction-sequence{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:8px}.transaction-sequence>li{display:flex;align-items:center;gap:12px;padding:12px;background:#FFFFFF;border:1px solid #D8DCD5;border-radius:8px;min-width:0}
+.transaction-sequence .tx-next{border-color:#86B300;box-shadow:inset 3px 0 #CCFF00}.transaction-sequence .tx-confirmed{border-color:#B7E4CD}.transaction-sequence .tx-waiting{color:#5A5F58;background:transparent}
+.tx-number{display:grid;place-items:center;flex-shrink:0;width:28px;height:28px;border:1px solid #D8DCD5;border-radius:50%;font-size:12px;font-weight:700}.tx-confirmed .tx-number{background:#EEF9F3;color:#23684C;border-color:#B7E4CD}.tx-next .tx-number{background:#CCFF00;border-color:#9EE510}
+.transaction-sequence li>div{flex:1;min-width:0}.transaction-sequence strong{display:block;font-size:13px}.transaction-sequence li>div>span{display:block;font-size:11px;margin-top:3px;color:#5A5F58}.transaction-sequence a{font-size:11px;white-space:nowrap}.transaction-exclusions{font-size:12px;color:#9A1D1D;margin:12px 0 0}
+@media(max-width:640px){.transaction-progress{padding:12px}.transaction-sequence>li{flex-wrap:wrap;gap:8px}.transaction-sequence a{margin-left:36px}.transaction-sequence li>div{flex-basis:calc(100% - 40px)}}
 .batch-selected,.batch-entries{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:8px}
 .batch-selected>li{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 12px;padding:10px 12px;border:1px solid #EFF1EE;border-radius:8px}
 .batch-selected .numeric{font-variant-numeric:tabular-nums;white-space:nowrap;font-size:13px}

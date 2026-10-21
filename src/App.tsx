@@ -172,10 +172,10 @@ export function App() {
   // Persisted before waiting for the receipt, with every expected effect, so a
   // timeout or reload never leads to an automatic resubmission.
   const progressRef = useRef(progress); progressRef.current = progress;
-  function record({ chainId: txChain, account: txAccount, label, hash, expectation }: SubmittedRecord) {
+  function record({ chainId: txChain, account: txAccount, label, hash, expectation, migration }: SubmittedRecord) {
     setLastHash(hash); setUncertain(true);
     const next = { ...progressRef.current, transactions: [...progressRef.current.transactions, {
-      chainId: txChain, account: txAccount, hash, label, status: "pending" as const, expectation,
+      chainId: txChain, account: txAccount, hash, label, status: "pending" as const, expectation, migration,
     }].slice(-1000) };
     progressRef.current = next;
     setProgress(next);
@@ -329,7 +329,7 @@ export function App() {
               if (result) openDiagnosis(result, 3, items.find(item => chosen.has(item.id) && item.chainId === target)?.tab);
             }} />}
           {(step === 0 || step === 2) && <CardAssetForm key={account} lang={lang} disabled={busy || !diagnosis.account} add={diagnosis.addCard} />}
-          {step === 3 && diagnosis.account && <BatchMigration lang={lang} busy={busy} run={run} account={diagnosis.account} wallet={walletAddress} items={items} chosen={chosen}
+          {step === 3 && diagnosis.account && <BatchMigration key={`${account.toLowerCase()}:${destination.trim().toLowerCase()}`} transactions={progress.transactions} lang={lang} busy={busy} run={run} account={diagnosis.account} wallet={walletAddress} items={items} chosen={chosen}
             select={(ids, value) => { setActiveItem(undefined); setSelectionState(old => setSelected(forAccount(old, account), items, ids, value)); }}
             destination={destination} guardians={guardians} overrides={rpcOverrides} uncertain={uncertain} provider={provider} baskets={baskets}
             onSubmitted={record} onConfirmed={(id, hash) => { confirmed(hash); diagnosis.rescan(id); }}
