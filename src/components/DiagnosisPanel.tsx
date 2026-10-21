@@ -44,7 +44,6 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
           <p>{retryTimeout > 0 ? t(`Os saldos encontrados foram mantidos. Aguardando até ${retryTimeout / 1000}s por requisição nesta tentativa.`, `Found balances are preserved. Allowing up to ${retryTimeout / 1000}s per request on this attempt.`) : scanning ? t(`${finished} de ${results.length} redes consultadas. Os saldos aparecem conforme chegam.`, `${finished} of ${results.length} networks checked. Balances appear as they arrive.`)
             : t("Confira os ativos e as pendências antes de continuar.", "Review assets and items needing attention before continuing.")}</p></div>
       </div>
-      {scanning && <progress value={finished} max={results.length} aria-label={t("Progresso do diagnóstico", "Diagnosis progress")} />}
     </div>}
     <div className="diagnosis-tabs" role="tablist" aria-label={t("Resultado do diagnóstico", "Diagnosis results")}>
       {(["assets", "pending"] as const).map((id, i) => <button key={id} type="button" role="tab" id={`diagnosis-${id}-tab`} aria-controls={`diagnosis-${id}`} aria-selected={view === id} tabIndex={view === id ? 0 : -1}

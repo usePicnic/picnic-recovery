@@ -74,11 +74,17 @@ export function AssetTable({ lang, busy, ready, results, custom, open, addCustom
   };
   const visible = all ? rows : rows.slice(0, PAGE);
   const scanning = results.some(r => r.status === "queued" || r.status === "scanning");
+  const tokenChecks = results.flatMap(result => [result, ...result.linkedCards ?? []]);
+  const totalTokens = tokenChecks.reduce((sum, result) => sum + result.totalTokens, 0);
+  const checkedTokens = tokenChecks.reduce((sum, result) => sum + Math.min(result.checkedTokens, result.totalTokens), 0);
   return <section className="assets" aria-labelledby="assets-title">
     <div className="section-title"><h3 id="assets-title">{selected ? t("Ativos selecionados", "Selected assets") : t("Ativos encontrados", "Assets found")}</h3>{rows.length > 0 && <span className="chip">{rows.length} {t(rows.length === 1 ? "item" : "itens", rows.length === 1 ? "item" : "items")}</span>}</div>
-    {ready && scanning && <p className="asset-loading" role="status"><span className="scan-spinner" aria-hidden="true" />{rows.length > 0
+    {ready && scanning && <div className="asset-loading"><div className="asset-loading-label"><span role="status">{rows.length > 0
       ? t("Buscando os demais ativos…", "Finding the remaining assets…")
-      : t("Procurando ativos em todas as redes…", "Looking for assets on every network…")}</p>}
+      : t("Procurando ativos em todas as redes…", "Looking for assets on every network…")}</span>
+      {totalTokens > 0 && <span className="asset-loading-count">{checkedTokens.toLocaleString(lang)} / {totalTokens.toLocaleString(lang)} {t("tokens consultados", "tokens checked")}</span>}</div>
+      <progress max={totalTokens || 1} value={totalTokens > 0 ? checkedTokens : undefined} aria-label={t("Progresso da consulta de tokens", "Token scan progress")} />
+    </div>}
     {rows.length > 0 ? <div className="table-wrap" aria-busy={scanning}><table className={`asset-table${showActions ? " with-actions" : ""}`}>
       <colgroup><col className="asset-column" /><col className="network-column" /><col className="balance-column" />{showActions && <col className="action-column" />}</colgroup>
       <caption className="sr-only">{t("Ativos por token e rede", "Assets by token and network")}</caption>

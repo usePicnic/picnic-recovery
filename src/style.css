@@ -25,7 +25,12 @@
 .asset-table .asset-column{width:42%}.asset-table .network-column{width:33%}.asset-table .balance-column{width:25%}
 .asset-table.with-actions .asset-column{width:34%}.asset-table.with-actions .network-column{width:28%}.asset-table.with-actions .balance-column{width:20%}.asset-table .action-column{width:18%}
 .asset-table .network-cell{white-space:normal}.asset-table .token-text small{overflow-wrap:break-word}.asset-table .token-badge{overflow-wrap:normal}
-.asset-loading{display:flex;align-items:center;gap:10px;margin:0 0 16px;font-size:12px;color:#5A5F58}.asset-loading .scan-spinner{width:16px;height:16px;border-width:2px}
+.asset-loading{margin:0 0 18px;font-size:12px;color:#5A5F58}.asset-loading-label{display:flex;justify-content:space-between;gap:6px 16px;flex-wrap:wrap;margin-bottom:10px}.asset-loading-count{font-size:11px;font-variant-numeric:tabular-nums}
+.asset-loading progress{display:block;appearance:none;width:100%;height:7px;border:0;border-radius:99px;overflow:hidden;background:#E4E7E1;accent-color:#CCFF00}
+.asset-loading progress::-webkit-progress-bar{background:#E4E7E1;border-radius:99px}.asset-loading progress::-webkit-progress-value{background:#CCFF00;border-radius:99px;transition:width .25s ease}.asset-loading progress::-moz-progress-bar{background:#CCFF00;border-radius:99px}
+.asset-loading progress:indeterminate{background:linear-gradient(90deg,#E4E7E1 0 30%,#CCFF00 50%,#E4E7E1 70%);background-size:200% 100%;animation:asset-progress 1.5s ease-in-out infinite}.asset-loading progress:indeterminate::-webkit-progress-bar{background:transparent}
+@keyframes asset-progress{from{background-position:100% 0}to{background-position:-100% 0}}
+@media(prefers-reduced-motion:reduce){.asset-loading progress:indeterminate{animation:none}.asset-loading progress::-webkit-progress-value{transition:none}}
 .asset-table thead th{background:#F5F7F3;color:#5A5F58;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;text-align:left;padding:11px 16px;border-bottom:1px solid #E4E7E1}
 .asset-table tbody tr+tr th,.asset-table tbody tr+tr td{border-top:1px solid #EFF1EE}
 .asset-table tbody tr:hover{background:#F5F7F3}
