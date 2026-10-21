@@ -6,8 +6,8 @@ import { ConnectKitButton } from "connectkit";
 import { chains, defaultReadRpcs } from "../catalog/chains";
 import type { Chain } from "viem";
 
-// The public project ID is shared with Picnic; self-hosted builds can override it.
-const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "f891f6a7542c41218b12b067ae6ac9f2";
+// The public project ID belongs to Picnic Recovery; self-hosted builds can override it.
+const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "dd53d0734789440eeeea6f8c1064b66b";
 const appUrl = typeof window === "undefined" ? "https://usepicnic.com" : window.location.origin;
 // Extensions remain available independently of the optional WalletConnect relay.
 // Transaction reads continue to use the RPC explicitly chosen in the app.
