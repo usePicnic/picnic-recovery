@@ -194,8 +194,8 @@ describe("Prepare wallets view", () => {
     expect(html).toContain("4</strong> of 6 assets selected");
     expect(html).toContain("Not moving now");
     expect(html.match(/type="checkbox"/g)).toHaveLength(2);
-    expect(html.match(/<details class="network-assets">/g)).toHaveLength(2);
-    expect(html).toContain("4 assets · view details");
+    expect(html.match(/class="migration-expanded-row" hidden=""/g)).toHaveLength(2);
+    expect(html).toContain("View 4 assets on Gnosis");
     // Fee check for Gnosis starts automatically; continuing waits for it.
     expect(html).toContain("Gnosis: Checking fee balance");
     expect(html).not.toContain("Polygon: The connected wallet does not control");

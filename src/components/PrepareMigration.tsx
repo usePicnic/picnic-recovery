@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { formatUnits, type Address } from "viem";
 import { chains, chainById } from "../catalog/chains";
 import { assertChain, publicClient } from "../core/client";
@@ -33,6 +33,7 @@ async function readGas(chainId: number, rpc: string, wallet: Address) {
 
 export function PrepareMigration({ lang, busy, account, wallet, results, items, selection, select, overrides, destination, setDestination, rescan, addCustom, retryCustom, run, next, connect, guardians = [], retryBasket }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [gas, setGas] = useState<GasState>({});
   const gasRef = useRef(gas);
   gasRef.current = gas;
@@ -108,25 +109,30 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
     {scanning.length > 0 && <p className="small muted" role="status">{t(`${scanning.length} rede(s) ainda em consulta. Ativos encontrados depois de você editar a seleção chegam desmarcados.`, `${scanning.length} network(s) still being checked. Assets found after you edit the selection arrive unselected.`)}</p>}
 
     {groups.length === 0 && <p className="empty-assets">{scanning.length ? t("Procurando ativos em todas as redes…", "Looking for assets on every network…") : t("Nenhum ativo verificado para migrar. Confira as leituras incompletas abaixo.", "No verified assets to move. Check the incomplete readings below.")}</p>}
-    <div className="migration-networks">
+    {groups.length > 0 && <div className="migration-table-wrap">
+    <table className="migration-network-table" aria-label={t("Redes para migrar", "Networks to migrate")}>
+      <thead><tr><th scope="col">{t("Rede", "Network")}</th><th scope="col">{t("Ativos", "Assets")}</th><th scope="col">{t("Situação", "Status")}</th></tr></thead><tbody>
       {groups.map(({ chain, result, items: own }) => {
         const options = own.filter(item => item.selectable), picked = options.filter(item => isSelected(selection, item));
         const all = options.length > 0 && picked.length === options.length, some = picked.length > 0;
         const state = some ? status(chain.id) : undefined, entry = entryFor(chain.id);
         const partial = result?.status === "partial" || result?.status === "unavailable";
-        return <article key={chain.id} className={`migration-network${some ? " is-selected" : ""}`} aria-labelledby={`network-${chain.id}`}>
-          <div className="migration-network-head">
+        return <Fragment key={chain.id}><tr className={`migration-network-row${some ? " is-selected" : ""}`}><th scope="row">
             <label className="group-check">
               <input type="checkbox" checked={all} disabled={busy || options.length === 0} aria-describedby={`network-${chain.id}-count`}
                 ref={el => { if (el) el.indeterminate = some && !all; }} onChange={() => select(options.map(item => item.id), !all)} />
-              <ChainLogo id={chain.id} size={28} />
+              <ChainLogo id={chain.id} size={24} />
               <span><strong id={`network-${chain.id}`}>{chain.name}</strong><small id={`network-${chain.id}-count`}>{t(`${picked.length} de ${options.length} selecionados`, `${picked.length} of ${options.length} selected`)}</small></span>
             </label>
+          </th><td><button type="button" className="network-assets-toggle" aria-expanded={!!expanded[chain.id]} aria-controls={`prepare-assets-${chain.id}`}
+            aria-label={t(`${expanded[chain.id] ? "Ocultar" : "Ver"} ${own.length} ativos em ${chain.name}`, `${expanded[chain.id] ? "Hide" : "View"} ${own.length} assets on ${chain.name}`)}
+            onClick={() => setExpanded(old => ({ ...old, [chain.id]: !old[chain.id] }))}>
+            <strong>{own.length}</strong><span>{expanded[chain.id] ? t("Ocultar", "Hide") : t("Ver ativos", "View assets")}</span></button></td><td>
             {state ? <span className={`status-pill ${tone(state)}`}>{state === "gas-loading" || state === "scanning" ? <span className="scan-spinner" aria-hidden="true" /> : null}{labels[state]}</span>
               : <span className="status-pill idle">{t("Não será migrada agora", "Not moving now")}</span>}
-          </div>
-          <details className="network-assets"><summary>{t(`${own.length} ${own.length === 1 ? "ativo" : "ativos"} · ver detalhes`, `${own.length} ${own.length === 1 ? "asset" : "assets"} · view details`)}</summary>
-          <ul className="migration-assets">
+          </td></tr>
+          <tr id={`prepare-assets-${chain.id}`} className="migration-expanded-row" hidden={!expanded[chain.id]}><td colSpan={3}>
+          <ul className="migration-assets" aria-label={t(`Ativos em ${chain.name}`, `Assets on ${chain.name}`)}>
             {own.map(item => <li key={item.id} className={item.selectable ? "" : "is-disabled"}>
               <div className="network-asset-row">
                 <ItemText item={item} lang={lang} extra={isNew(selection, item) ? <em className="token-badge new">{t("Novo · não selecionado", "New · not selected")}</em> : undefined} />
@@ -135,14 +141,16 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
               {item.basketId !== undefined && <BasketContentsView compact contents={item.contents} lang={lang} retry={retryBasket && (() => retryBasket(item.basketId!))} />}
               {item.custom?.status === "error" && <button className="text-button" disabled={busy} onClick={() => retryCustom(item.chainId, item.custom!.address)}>{t("Tentar de novo", "Retry")}</button>}
             </li>)}
-          </ul></details>
+          </ul></td></tr>
+          {(partial || some && state) && <tr className="migration-context-row"><td colSpan={3}>
           {partial && <div className="gaps" role="note"><strong>{t("Leitura incompleta nesta rede", "Incomplete reading on this network")}</strong>
             <p className="small">{t("Alguns saldos não puderam ser verificados: são desconhecidos, não zero. Outros ativos podem aparecer ao repetir.", "Some balances could not be verified: they are unknown, not zero. More assets may appear when retrying.")}</p>
             <button className="text-button" disabled={busy} onClick={() => rescan(chain.id)}>{t("Consultar a rede de novo", "Check the network again")}</button></div>}
           {some && state && <FeeLine chainId={chain.id} state={state} entry={entry} wallet={wallet} busy={busy} lang={lang} retry={() => check(chain.id)} connect={connect} />}
-        </article>;
+          </td></tr>}
+        </Fragment>;
       })}
-    </div>
+    </tbody></table></div>}
 
     {emptyIncomplete.length > 0 && <div className="gaps" role="note"><strong>{t("Redes com leitura incompleta", "Networks with incomplete readings")}</strong>
       <p className="small">{t("Nenhum ativo verificado ainda nestas redes, mas a leitura não terminou. Isso não significa saldo zero.", "No verified assets yet on these networks, but the reading did not finish. This does not mean a zero balance.")}</p>

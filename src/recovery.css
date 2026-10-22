@@ -116,3 +116,42 @@
  .recovery-shell .diagnosis-details{margin:0 20px}.recovery-shell .diagnosis-help{margin:0 20px}
  .recovery-shell .app-footer{margin-top:16px;padding:16px 20px}
 }
+
+/* A single network table: details expand in place, selection stays per network. */
+.migration-table-wrap{margin:14px 0 20px;overflow-x:auto;border:1px solid #D8DCD5;border-radius:8px}
+.migration-network-table{width:100%;border-collapse:collapse;font-size:13px;text-align:left}
+.migration-network-table>thead>tr>th{padding:11px 16px;background:#F5F7F3;color:#5A5F58;font-size:12px;font-weight:600;border-bottom:1px solid #D8DCD5}
+.migration-network-row>th,.migration-network-row>td{padding:14px 16px;border-top:1px solid #E4E7E1;vertical-align:middle;font-weight:400}
+.migration-network-row>th{width:44%}.migration-network-row>td:nth-child(2){width:20%}
+.migration-network-row.is-selected{background:#FAFCF6}
+.migration-network-table .group-check{gap:10px}.migration-network-table .group-check strong{font-size:14px}.migration-network-table .group-check small{font-size:12px;margin-top:3px;font-weight:400}
+.migration-network-table input[type=checkbox]{width:18px;height:18px;margin:0;flex-shrink:0;accent-color:#658C00}
+.recovery-shell .network-assets-toggle{display:inline-flex;align-items:center;gap:12px;background:transparent;border:0;color:#211D1A;padding:8px 0;font-size:13px}
+.network-assets-toggle>span{text-decoration:underline;text-underline-offset:3px;font-weight:400;white-space:nowrap}
+.recovery-shell .network-assets-toggle:hover{background:transparent;color:#5A5F58}
+.migration-network-table .status-pill{border:0;background:transparent;padding:0;white-space:normal;text-align:left;justify-content:flex-start}
+.migration-network-table .status-pill.blocked{color:#9A1D1D}
+.migration-expanded-row>td,.migration-context-row>td{padding:0}
+.migration-expanded-row[hidden]{display:none}
+.migration-expanded-row .migration-assets{margin:0;padding:8px 16px 14px;background:#F8F9F5;border-top:1px solid #E4E7E1}
+.migration-context-row .migration-fee{padding:10px 16px;background:transparent}
+.migration-context-row .migration-fee.fund,.migration-context-row .migration-fee.gas-error,.migration-context-row .migration-fee.owner{background:#FFF1F1}
+.migration-context-row .gaps{margin:0;border-radius:0}
+@media(max-width:640px){.migration-network-table{min-width:500px}.migration-network-row>th,.migration-network-row>td{padding:12px}.migration-network-table .group-check{gap:8px}}
+
+/* Transaction notifications stay out of the recovery workspace. */
+.notifications{position:relative}
+.recovery-shell .notification-bell{position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;padding:8px}
+.notification-count{position:absolute;right:0;top:0;min-width:16px;height:16px;display:grid;place-items:center;border-radius:999px;padding:0 4px;background:#CCFF00;color:#211D1A;font-size:10px;font-weight:700}
+.notifications-panel{position:absolute;right:0;top:calc(100% + 14px);z-index:100;width:380px;max-width:calc(100vw - 32px);max-height:70vh;overflow:auto;background:#FFF;color:#211D1A;border:1px solid #D8DCD5;border-radius:10px;box-shadow:0 12px 36px #211D1A26;padding:18px;text-align:left}
+.notifications-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.recovery-shell .notifications-heading h2{font-size:17px;letter-spacing:0;margin:0}
+.recovery-shell .notifications-panel button,.recovery-shell .notifications-panel a{color:#211D1A;outline-color:#211D1A}
+.notifications-panel>p{font-size:13px;margin:20px 0 8px}
+.notifications-panel ul{list-style:none;padding:0;margin:14px 0 0}
+.notifications-panel li{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:16px 0;border-top:1px solid #E4E7E1;font-size:13px}
+.notifications-panel li>strong{font-size:14px}.notifications-panel li p{margin:0;font-size:13px;line-height:1.5}.notifications-panel li>a{font-size:12px;text-underline-offset:3px}
+.notifications-panel details{margin:0;width:100%;overflow-wrap:anywhere}.notifications-panel details p{margin-top:8px}
+.batch-receipt-check{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px}
+.batch-receipt-check p{flex-basis:100%;margin:0}.batch-receipt-check small{color:#5A5F58}
+@media(max-width:720px){.notifications-panel{position:fixed;left:16px;right:16px;top:68px;width:auto}.recovery-shell .notification-bell{width:36px;height:36px}}

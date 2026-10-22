@@ -1,3 +1,5 @@
+import type { ReceiptCheck } from "./usePendingReceipts";
+import type { TransactionRecord } from "../core/pendingReceipts";
 import { useEffect, useRef, useState } from "react";
 import type { Address, EIP1193Provider, Hex } from "viem";
 import { chainById, chains } from "../catalog/chains";
@@ -27,6 +29,7 @@ type Lang = "pt" | "en";
 export type SubmittedRecord = { chainId: number; account: Address; label: string; hash: Hex; expectation?: ReceiptExpectation; migration?: MigrationReceipt };
 type Props = {
   transactions?: Progress["transactions"];
+  pendingReceipt?: TransactionRecord; receiptChecks?: Record<string, ReceiptCheck>; checkReceipt?: (hash: string) => void;
   lang: Lang; busy: boolean; run: (task: () => Promise<void>) => Promise<void>;
   account: Address; wallet?: Address; items: MigrationItem[]; chosen: ReadonlySet<string>; destination: string;
   guardians: readonly Address[]; overrides: RpcOverrides; uncertain: boolean; provider: () => Promise<EIP1193Provider>;
@@ -263,7 +266,12 @@ export function BatchMigration(props: Props) {
           {s.plan && <details className="network-assets"><summary>{t("Detalhes da transação", "Transaction details")}</summary><PlanView plan={s.plan} snapshot={s.snapshot!} action={s.action} safeTxHash={s.safeTxHash} wallet={wallet} lang={lang} sent={sent}
             items={own} openItem={props.openItem} amount={r => amount(chainId, r)} /></details>}
           {(!s.done || progress.blocked.length > 0) && (own.length > 0 || s.action) && <div className="batch-actions">
-            {(own.length > 0 || s.action) && <button type="button" className={isCurrent ? "next-step" : "outline"}
+            {uncertain && !working && props.pendingReceipt && props.checkReceipt ? <div className="batch-receipt-check" role="status">
+              <p>{t(`Uma transação enviada na ${chainById(props.pendingReceipt.chainId).name} aguarda verificação. O próximo envio será liberado após conferir o recibo.`, `A submitted transaction on ${chainById(props.pendingReceipt.chainId).name} awaits verification. The next send unlocks after its receipt is checked.`)}</p>
+              <button type="button" className="outline" disabled={busy || props.receiptChecks?.[props.pendingReceipt.hash]?.status === "checking"} onClick={() => props.checkReceipt!(props.pendingReceipt!.hash)}>
+                {props.receiptChecks?.[props.pendingReceipt.hash]?.status === "checking" ? t("Verificando recibo…", "Checking receipt…") : t("Conferir recibo", "Check receipt")}</button>
+              <small>{t("Acompanhe os detalhes no sininho, no topo da tela.", "Follow the details in notifications at the top of the screen.")}</small>
+            </div> : (own.length > 0 || s.action) && <button type="button" className={isCurrent ? "next-step" : "outline"}
               disabled={busy || anyReading || !!destinationProblem || uncertain}
               onClick={() => void migrate(chainId)}>{working ? s.stage ? stageText[s.stage] : t("Preparando…", "Preparing…")
                 : s.done ? t("Verificar ativos bloqueados novamente", "Check blocked assets again") : progress.totalTransactions > 0 ? `${sent > 0 ? t("Continuar", "Continue") : t("Iniciar", "Start")} · ${transactionLabel.toLowerCase()} →` : t(`Migrar ${chain.name} →`, `Migrate ${chain.name} →`)}</button>}

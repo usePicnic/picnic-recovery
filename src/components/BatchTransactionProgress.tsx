@@ -27,7 +27,7 @@ export function BatchTransactionProgress({ history, progress, chainId, lang, act
         {explorer && <a href={`${explorer}/tx/${tx.hash}`} target="_blank" rel="noreferrer">{t("Ver recibo ↗", "View receipt ↗")}</a>}</li>)}
       {parts.map((ids, index) => {
         // While this transaction is being worked on, its stage bar is the only status.
-        const status = index > 0 ? t("Aguardando a anterior", "Waiting for previous transaction") : uncertain ? t("Resultado pendente de verificação", "Result awaiting verification")
+        const status = index > 0 ? t("Aguardando a anterior", "Waiting for previous transaction") : uncertain ? t("Transação enviada · verificando recibo", "Transaction submitted · checking receipt")
           : active ? undefined : awaitingReceipt ? t("Aguardando confirmação na rede", "Waiting for on-chain confirmation") : t("Próxima", "Next");
         return <li key={`remaining-${index}`} className={index === 0 ? "tx-next" : "tx-waiting"} aria-current={index === 0 ? "step" : undefined}>
         <span className="tx-number" aria-hidden="true">{history.length + index + 1}</span><div><strong>{t(`Transação ${history.length + index + 1} de ${totalTransactions}`, `Transaction ${history.length + index + 1} of ${totalTransactions}`)}{estimated ? ` · ${t("estimada", "estimated")}` : ""}</strong>

@@ -1,3 +1,6 @@
+import { Notifications } from "./components/Notifications";
+import { usePendingReceipts } from "./components/usePendingReceipts";
+import { pendingForAccount, type TransactionRecord } from "./core/pendingReceipts";
 import { displayError } from "./core/errors";
 import { RecoveryLanding } from "./components/RecoveryLanding";
 import { ModuleLoadNotice } from "./components/ModuleLoadNotice";
@@ -5,11 +8,11 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatUnits, type Address, type EIP1193Provider, type Hex } from "viem";
 import { chains, chainById } from "./catalog/chains";
 import { products } from "./catalog/products";
-import { address, assertChain, parseAmount, publicClient, same } from "./core/client";
+import { address, parseAmount, publicClient, same } from "./core/client";
 import { inspectAccount } from "./core/inspect";
 import { assertSeparateRecipient, destinationError, knownGuardians } from "./core/destination";
 import { recoveryAction, safeAction, sendAction, transferCall, approveSafeProposal } from "./core/actions";
-import { verifyReceipt, type ReceiptExpectation } from "./core/receipts";
+import { type ReceiptExpectation } from "./core/receipts";
 import { erc20Abi } from "./core/abi";
 import { inspectCard, enqueueCard, readQueue, dispatchCard, skipExpiredCard, queueStatus, type CardDelay, type QueuedCall } from "./core/card";
 import { inspectPosition, redeemPosition, claimCovered, settleCovered, claimStader, claimStakingRewards, recoverCoveredDeposit, findCoveredRequests, type Position } from "./core/investments";
@@ -84,8 +87,10 @@ export function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState<PreparedAction>();
-  const [lastHash, setLastHash] = useState<Hex | undefined>(() => readProgress().transactions.find(tx => tx.status === "pending")?.hash);
-  const [uncertain, setUncertain] = useState(() => readProgress().transactions.some(tx => tx.status === "pending"));
+  const receiptAccounts = [account, ...items.flatMap(item => item.card ? [item.card.card] : [])].filter(Boolean);
+  const accountTransactions = progress.transactions.filter(tx => receiptAccounts.some(source => same(source, tx.account)));
+  const pendingTransactions = pendingForAccount(progress.transactions, receiptAccounts);
+  const uncertain = pendingTransactions.length > 0;
   const [owner, setOwner] = useState("");
   const [destination, setDestination] = useState("");
   const [token, setToken] = useState("");
@@ -175,7 +180,6 @@ export function App() {
   // timeout or reload never leads to an automatic resubmission.
   const progressRef = useRef(progress); progressRef.current = progress;
   function record({ chainId: txChain, account: txAccount, label, hash, expectation, migration }: SubmittedRecord) {
-    setLastHash(hash); setUncertain(true);
     const next = { ...progressRef.current, transactions: [...progressRef.current.transactions, {
       chainId: txChain, account: txAccount, hash, label, status: "pending" as const, expectation, migration,
     }].slice(-1000) };
@@ -183,14 +187,22 @@ export function App() {
     setProgress(next);
     saveProgress(next);
   }
-  function confirmed(hash: Hex) {
+  function settled(hash: Hex, status: "confirmed" | "reverted") {
     setProgress(old => {
-      const next = { ...old, transactions: old.transactions.map(tx => tx.hash === hash ? { ...tx, status: "confirmed" as const } : tx) };
+      const next = { ...old, transactions: old.transactions.map(tx => tx.hash === hash ? { ...tx, status } : tx) };
       progressRef.current = next;
       return next;
     });
-    setUncertain(false); setLastHash(undefined);
   }
+  function confirmed(hash: Hex) { settled(hash, "confirmed"); }
+  const receiptMonitor = usePendingReceipts({ pending: pendingTransactions, enabled: started && !!walletAddress && connectedAccount?.status !== "loading", busy,
+    scope: `${walletAddress ?? ""}:${account}`, overrides: rpcOverrides, lang,
+    settle: (tx: TransactionRecord, status) => {
+      settled(tx.hash, status);
+      setReview(undefined);
+      diagnosis.rescan(tx.chainId);
+    },
+  });
   async function execute(approveOnly = false, action = review) {
     if (!action || uncertain) return;
     if (action.receive) assertSeparateRecipient(action.receive.recipient, walletAddress, guardians);
@@ -221,7 +233,6 @@ export function App() {
         receive: { token: coin, recipient: address(destination), minimum: value } });
     }
   }
-  const explorer = chain.blockExplorers?.default.url;
   // Card withdrawals leave the card Safe; other transfers leave the source account.
   const transferProblem = destinationError(destination, tab === "card" ? cardDelay?.card ?? account : snapshot?.address ?? account, walletAddress, guardians);
   const investProblem = destination.trim() ? destinationError(destination, snapshot?.address ?? account, walletAddress, guardians) : undefined;
@@ -266,7 +277,7 @@ export function App() {
               <span className="step-number">{index}</span><span>{title}<small>{subtitle}</small></span>
             </button>)}
           </nav>}
-      <div className="header-actions">{started && <button className="quiet home-button" disabled={busy} onClick={() => setStarted(false)}>{t("Início", "Home")}</button>}
+      <div className="header-actions">{started && <Notifications transactions={accountTransactions} checks={receiptMonitor.checks} check={hash => void receiptMonitor.check(hash)} busy={busy} lang={lang} />}{started && <button className="quiet home-button" disabled={busy} onClick={() => setStarted(false)}>{t("Início", "Home")}</button>}
         <button className="quiet" onClick={() => setLang(lang === "pt" ? "en" : "pt")} aria-label="Change language">{lang === "pt" ? "EN" : "PT"}</button>
       </div>
     </header>
@@ -298,24 +309,6 @@ export function App() {
           {step <= 1 && connectedAccount?.status === "error" && <p className="message warning" role="alert">{t("Não foi possível verificar a conta Picnic vinculada. Confira o RPC da Gnosis em Avançado; os saldos da carteira conectada não incluem necessariamente os da Picnic.", "The linked Picnic account could not be verified. Check the Gnosis RPC under Advanced; the connected wallet's balances may not include your Picnic funds.")}</p>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}
-          {step === 3 && uncertain && <div className="message warning" role="alert">
-            <strong>{t("Uma transação foi enviada. Confira o resultado antes de repetir.", "A transaction was submitted. Check its result before repeating.")}</strong>
-            {lastHash && <><p className="mono">{lastHash}</p><button className="outline" disabled={busy} onClick={() => run(async () => {
-              const record = progressRef.current.transactions.find(tx => tx.hash === lastHash);
-              if (!record) throw new Error("Pending transaction record not found");
-              const receiptClient = publicClient(chainById(record.chainId), rpcFor(record.chainId, rpcOverrides));
-              await assertChain(receiptClient, record.chainId);
-              const receipt = await receiptClient.getTransactionReceipt({ hash: lastHash });
-              // Same full verification as an awaited receipt: Safe hash, every token and queue entry.
-              if (receipt.status === "success") verifyReceipt(receipt, record.expectation ?? {});
-              setNotice(`${t("Recibo", "Receipt")}: ${receipt.status}. ${t("Atualize a conta e confira o resultado da operação.", "Refresh the account and verify the operation result.")}`);
-              setProgress(old => ({ ...old, transactions: old.transactions.map(tx => tx.hash === lastHash ? { ...tx, status: receipt.status === "success" ? "confirmed" : "reverted" } : tx) }));
-              const other = progressRef.current.transactions.find(tx => tx.hash !== lastHash && tx.status === "pending");
-              setUncertain(Boolean(other)); setLastHash(other?.hash); setReview(undefined);
-              if (same(record.account, account)) diagnosis.rescan(record.chainId);
-              if (record.chainId === chainId && snapshot) await refresh();
-            })}>{t("Conferir recibo", "Check receipt")}</button></>}
-          </div>}
           {step === 2 && <PrepareMigration lang={lang} busy={busy} account={account} wallet={walletAddress} results={diagnosis.results} items={items}
             selection={selection} select={(ids, value) => setSelectionState(old => setSelected(forAccount(old, account), items, ids, value))} overrides={rpcOverrides}
             destination={destination} setDestination={setDestination} rescan={diagnosis.rescan} addCustom={diagnosis.addCustomToken} retryCustom={diagnosis.retryCustomToken}
@@ -328,6 +321,7 @@ export function App() {
           {step === 3 && diagnosis.account && <BatchMigration key={`${account.toLowerCase()}:${destination.trim().toLowerCase()}`} transactions={progress.transactions} lang={lang} busy={busy} run={run} account={diagnosis.account} wallet={walletAddress} items={items} chosen={chosen}
             select={(ids, value) => { setActiveItem(undefined); setSelectionState(old => setSelected(forAccount(old, account), items, ids, value)); }}
             destination={destination} guardians={guardians} overrides={rpcOverrides} uncertain={uncertain} provider={provider} baskets={baskets}
+            pendingReceipt={pendingTransactions[0]} receiptChecks={receiptMonitor.checks} checkReceipt={hash => void receiptMonitor.check(hash)}
             onSubmitted={record} onConfirmed={(id, hash) => { confirmed(hash); diagnosis.rescan(id); }}
             openItem={item => { const result = diagnosis.results.find(r => r.chainId === item.chainId); if (result) openAsset(item, result); }}
             />}
@@ -428,9 +422,6 @@ export function App() {
             <div className="row"><button disabled={busy || uncertain} onClick={() => run(() => execute())}>{busy ? t("Aguardando…", "Waiting…") : t("Tentar novamente na carteira", "Try again in wallet")}</button>
               {review.kind === "safe" && snapshot && snapshot.threshold > 1n && <button className="outline" disabled={busy || uncertain} onClick={() => run(() => execute(true))}>{t("Registrar minha aprovação", "Register my approval")}</button>}
               <button className="quiet" disabled={busy} onClick={() => setReview(undefined)}>{t("Voltar", "Back")}</button></div>
-          </section>}
-          {step === 3 && progress.transactions.some(tx => tx.chainId === chainId) && <section className="panel compact"><h3>{t("Transações deste navegador", "Transactions from this browser")}</h3>
-            {progress.transactions.filter(tx => tx.chainId === chainId).slice(-8).reverse().map(tx => <p className="small" key={tx.hash}><a href={`${explorer}/tx/${tx.hash}`} target="_blank" rel="noreferrer">{short(tx.hash)} ↗</a> · {tx.label}</p>)}
           </section>}
         </div>
       </div>
