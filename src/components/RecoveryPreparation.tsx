@@ -20,6 +20,8 @@ type Props = {
 };
 export function RecoveryPreparation(props: Props) {
   const { account, results, wallet, owner, setOwner, lang } = props;
+  const ownerInput = useRef<HTMLInputElement>(null);
+  const editOwner = () => { ownerInput.current?.scrollIntoView({ behavior: "smooth", block: "center" }); ownerInput.current?.focus({ preventScroll: true }); };
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const detected = results.flatMap(r => r.snapshot && (r.snapshot.passkey === "detected" || r.snapshot.recoveries.some(m => m.supported && m.pending.executeAfter > 0n)) ? [r.snapshot] : []);
   // Keep the recovery handoff visible when finalization removes the passkey owner.
@@ -32,16 +34,16 @@ export function RecoveryPreparation(props: Props) {
   useEffect(() => { setTracked({ account, snapshots }); }, [account, fingerprint]);
   if (!snapshots.length) return null;
   const guardians = knownGuardians(results.map(r => r.snapshot), account);
-  const needsOwner = snapshots.some(s => s.passkey === "detected" && !s.owners.some(a => wallet && same(a, wallet)) && !s.recoveries.some(r => r.pending.executeAfter));
+  const needsOwner = snapshots.some(s => s.passkey === "detected" && !s.owners.some(a => wallet && same(a, wallet)) && s.recoveries.some(r => r.supported && r.threshold > 0n && !r.pending.executeAfter));
   return <section className="recovery-preparation" aria-labelledby="prepare-recovery-title">
     <h3 id="prepare-recovery-title">{t("Recuperar acesso", "Recover access")}</h3>
     <p>{t("Contas com passkey podem ser recuperadas usando o guardian configurado. A recuperação troca a carteira que controla a conta; seus ativos continuam nela.", "Passkey accounts can be recovered using their configured guardian. Recovery changes the wallet controlling the account; your assets stay in it.")}</p>
-    {needsOwner && <label className="field"><span>{t("Nova carteira que vai controlar a conta", "New wallet to control the account")}</span><input value={owner} disabled={props.busy} onChange={e => setOwner(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" /></label>}
-    <p className="small muted">{t("A nova carteira deve ser sua e diferente de todos os guardians. Cada rede tem suas próprias aprovações e prazo.", "The new wallet must be yours and different from every guardian. Each network has its own approvals and waiting period.")}</p>
-    {snapshots.map(snapshot => <RecoveryNetwork key={`${account}:${snapshot.chainId}`} {...props} guardians={guardians} initial={snapshot} />)}
+    {needsOwner && <label className="field"><span>{t("Nova carteira que vai controlar a conta", "New wallet to control the account")}</span><input ref={ownerInput} id="recovery-new-owner" aria-describedby="recovery-new-owner-help" required value={owner} disabled={props.busy} onChange={e => setOwner(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" /></label>}
+    <p id="recovery-new-owner-help" className="small muted">{t("A nova carteira deve ser sua e diferente de todos os guardians. Cada rede tem suas próprias aprovações e prazo.", "The new wallet must be yours and different from every guardian. Each network has its own approvals and waiting period.")}</p>
+    {snapshots.map(snapshot => <RecoveryNetwork key={`${account}:${snapshot.chainId}`} {...props} guardians={guardians} editOwner={editOwner} initial={snapshot} />)}
   </section>;
 }
-function RecoveryNetwork({ initial, guardians = [], wallet, owner, overrides, busy, blocked, lang, connect, run, perform, onSnapshot }: Props & { initial: AccountSnapshot }) {
+function RecoveryNetwork({ initial, editOwner, guardians = [], wallet, owner, overrides, busy, blocked, lang, connect, run, perform, onSnapshot }: Props & { initial: AccountSnapshot; editOwner: () => void }) {
   const chain = chainById(initial.chainId), rpc = rpcFor(chain.id, overrides);
   const key = `${initial.address}:${chain.id}:${wallet ?? ""}:${owner.trim().toLowerCase()}:${rpc}`;
   const [state, setState] = useState<{ key: string; data?: Checks; error?: string; loading?: boolean }>();
@@ -106,10 +108,18 @@ function RecoveryNetwork({ initial, guardians = [], wallet, owner, overrides, bu
             <p>{allowed.guardian ? t("Guardian confirmado.", "Guardian confirmed.") : t("A carteira conectada não é guardian desta conta.", "The connected wallet is not this account’s guardian.")}</p>
             {!allowed.guardian && <button className="text-button" disabled={busy} onClick={connect}>{t("Conectar um guardian no diagnóstico", "Connect a guardian in diagnosis")}</button>}
             {owner.trim() && problem && <p className="table-error" role="alert">{problem === "guardian" ? t("A nova carteira não pode ser um guardian.", "The new wallet cannot be a guardian.") : problem === "source" ? t("A nova carteira não pode ser a própria Safe.", "The new wallet cannot be the Safe itself.") : t("Informe um endereço válido para a nova carteira.", "Enter a valid new wallet address.")}</p>}
-            <p className="small">{t("Aprovações", "Approvals")}: {allowed.approvals?.count.toString() ?? "—"}/{r.threshold.toString()} · {t("Prazo após iniciar", "Delay after starting")}: {r.period === undefined ? t("não verificado", "unverified") : `${Number(r.period) / 86400} ${t("dias", "days")}`}</p>
+            {owner.trim() ? <p className="small recovery-target">{t("Nova carteira", "New wallet")}: <span className="mono">{owner.trim()}</span> <button type="button" className="text-button" disabled={busy} onClick={editOwner}>{t("Alterar", "Change")}</button></p> : <div className="recovery-next-action"><p>{t("Informe uma nova carteira sua para controlar esta Safe. Ela não pode ser o guardian conectado nem qualquer outro guardian da conta.", "Enter another wallet you own to control this Safe. It cannot be the connected guardian or any other guardian of this account.")}</p><button type="button" disabled={busy} onClick={editOwner}>{t("Definir nova carteira", "Set new wallet")}</button></div>}
+            <p className="small">{allowed.approvals && <>{t("Aprovações", "Approvals")}: {allowed.approvals.count.toString()}/{r.threshold.toString()} · </>}{t("Prazo após iniciar", "Delay after starting")}: {r.period === undefined ? t("não verificado", "unverified") : `${Number(r.period) / 86400} ${t("dias", "days")}`}</p>
             {allowed.approvals?.approved && <p className="small">{t("Este guardian já aprovou a nova carteira.", "This guardian already approved the new wallet.")}</p>}
-            <div className="row"><button disabled={disabled || !allowed.approve} onClick={() => act(r.module, "approve")}>{t("Aprovar na carteira", "Approve in wallet")}</button>
-              <button className="outline" disabled={disabled || !allowed.start} onClick={() => act(r.module, "start")}>{t("Iniciar recuperação", "Start recovery")}</button></div>
+            {!!owner.trim() && <>
+              {allowed.approvals && allowed.approvals.count >= r.threshold ? <>
+                <p className="small">{t("Aprovações concluídas. Inicie a recuperação para começar a contar o prazo.", "Approvals complete. Start recovery to begin the waiting period.")}</p>
+                <button disabled={disabled || !allowed.start} onClick={() => act(r.module, "start")}>{t("Iniciar recuperação", "Start recovery")}</button>
+              </> : allowed.approvals?.approved ? <p className="small" role="status">{t(`Aguardando mais ${r.threshold - allowed.approvals.count} aprovação(ões) de outros guardians para iniciar.`, `Waiting for ${r.threshold - allowed.approvals.count} more guardian approval(s) before starting.`)}</p> : <>
+                {allowed.validOwner && allowed.guardian && <p className="small">{t("Primeiro, aprove a nova carteira. Depois, você poderá iniciar o prazo de recuperação.", "First, approve the new wallet. Then you can start the recovery waiting period.")}</p>}
+                <button disabled={disabled || !allowed.approve} onClick={() => act(r.module, "approve")}>{t("Aprovar na carteira", "Approve in wallet")}</button>
+              </>}
+            </>}
           </>}
         </div>;
       })}</>}

@@ -49,3 +49,11 @@ describe("recovery preparation permissions", () => {
     expect(html).toContain("Recuperar acesso"); expect(html).toContain("Recuperação em Gnosis"); expect(html).toContain("Recuperação em Polygon");
   });
 });
+
+it("keeps the new-owner field available when only another module has a pending recovery", () => {
+  const pending = { ...recovery, module: next, pending: { executeAfter: 200n, newOwners: [next], newThreshold: 1n, guardiansApprovalCount: 1n } };
+  const html = renderToStaticMarkup(createElement(RecoveryPreparation, { account: safe, wallet: guardian, owner: "", setOwner: vi.fn(), overrides: {}, busy: false, blocked: false, lang: "pt", connect: vi.fn(), run: vi.fn(), perform: vi.fn(), onSnapshot: vi.fn(),
+    results: [{ ...emptyDiagnosis(100, safe), status: "complete", snapshot: { ...snapshot, recoveries: [recovery, pending] } }] }));
+  expect(html).toContain('id="recovery-new-owner"');
+  expect(html).toContain('required=""');
+});
