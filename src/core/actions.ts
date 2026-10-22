@@ -193,6 +193,9 @@ export async function sendAction(
   assertActionShape(action);
   assertAllowedRecipients(action, action.forbiddenRecipients ?? []);
   const { wallet, sender } = await connectedWallet(provider, action.chainId, onSigning);
+  const assertSigner = async () => {
+    if (await wallet.getChainId() !== action.chainId || !same((await wallet.getAddresses())[0] ?? "", sender)) throw new Error("Wallet account or network changed");
+  };
   onSigning?.("validation");
   if (action.expectedSender && !same(sender, action.expectedSender)) throw new Error("Connected wallet does not control the selected account");
   await assertFresh(client, action);
@@ -204,6 +207,7 @@ export async function sendAction(
     const state = await inspectRecovery(client, action.account, module);
     if (state.guardians.some(g => same(g, owner))) throw new Error("The new owner cannot be a recovery guardian of this account");
     if (!state.guardians.some(g => same(g, sender))) throw new Error("Connected wallet is not a recovery guardian");
+    await assertSigner();
     onSigning?.("signature");
     const signature = await wallet.signTypedData({
       account: sender, domain: { name: "Social Recovery Module", version: "0.0.1", chainId: action.chainId, verifyingContract: module },
@@ -230,6 +234,7 @@ export async function sendAction(
     const executor = owner && snapshot.threshold === 1n;
     let signature: Hex | undefined;
     if (owner && !executor) {
+      await assertSigner();
       onSigning?.("signature");
       signature = await wallet.signTypedData({
         account: sender, domain: { chainId: action.chainId, verifyingContract: action.account },
@@ -250,7 +255,7 @@ export async function sendAction(
   await assertFresh(client, action);
   await action.revalidate?.();
   const expectation = receiptExpectation(action, action.kind === "safe" ? await safeHash(client, action) : undefined);
-  if (await wallet.getChainId() !== action.chainId || !(await wallet.getAddresses()).some(a => same(a, sender))) throw new Error("Wallet account or network changed");
+  await assertSigner();
   onSigning?.("transaction");
   const hash = await wallet.sendTransaction({ account: sender, chain: null, ...call, gas: gas * 120n / 100n });
   onSubmitted(hash, expectation); // Persist before waiting: a timeout must not trigger a retry.
@@ -278,12 +283,13 @@ async function receivedBalance(client: PublicClient, effect: Receive) {
 export async function approveSafeProposal(client: PublicClient, provider: EIP1193Provider, action: PreparedAction, onSubmitted: (hash: Hex, expectation?: ReceiptExpectation) => void) {
   assertActionShape(action);
   const { sender } = await connectedWallet(provider, action.chainId);
+  if (action.expectedSender && !same(sender, action.expectedSender)) throw new Error("Wallet account or network changed");
   const snapshot = await inspectAccount(client, action.account, action.chainId);
   if (!snapshot.owners.some(o => same(o, sender)) || snapshot.nonce !== action.safeNonce) throw new Error("Invalid owner or stale proposal");
   assertAllowedRecipients(action, [...action.forbiddenRecipients ?? [], ...snapshot.recoveries.flatMap(r => r.guardians)]);
   if (operationOf(action) === 1) await verifyMultiSendRuntime(client, action.chainId, action.call.to);
   const hash = await safeHash(client, action);
   return sendAction(client, provider, { kind: "direct", chainId: action.chainId, account: action.account,
-    label: "Approve Safe proposal", call: { to: action.account, value: 0n,
+    expectedSender: sender, label: "Approve Safe proposal", call: { to: action.account, value: 0n,
       data: encodeFunctionData({ abi: safeAbi, functionName: "approveHash", args: [hash] }) } }, onSubmitted);
 }

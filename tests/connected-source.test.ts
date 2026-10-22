@@ -5,6 +5,7 @@ import { App } from "../src/App";
 
 const state = vi.hoisted(() => ({ wallet: undefined as string | undefined, resolved: undefined as string | undefined, inspected: "" }));
 vi.mock("wagmi", () => ({ useAccount: () => ({ address: state.wallet }) }));
+vi.mock("../src/components/useLiveWallet", () => ({ useLiveWallet: () => ({ address: state.wallet, status: state.wallet ? "ready" : "disconnected" }) }));
 vi.mock("connectkit", () => ({ ConnectKitProvider: ({ children }: { children: unknown }) => children }));
 vi.mock("../src/components/ChainLogo", () => ({ ChainLogo: () => null }));
 vi.mock("../src/components/WalletProvider", () => ({ WalletButton: () => null }));

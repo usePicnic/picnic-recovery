@@ -17,6 +17,8 @@ import { type ReceiptExpectation } from "./core/receipts";
 import { erc20Abi } from "./core/abi";
 import { inspectCard, enqueueCard, readQueue, dispatchCard, skipExpiredCard, queueStatus, type CardDelay, type QueuedCall } from "./core/card";
 import { inspectPosition, redeemPosition, claimCovered, settleCovered, claimStader, claimStakingRewards, recoverCoveredDeposit, findCoveredRequests, type Position } from "./core/investments";
+import { useLiveWallet } from "./components/useLiveWallet";
+import { walletAccounts } from "./core/walletAccount";
 import { useAccount } from "wagmi";
 import { ConnectKitProvider } from "connectkit";
 import { PrepareMigration } from "./components/PrepareMigration";
@@ -54,7 +56,8 @@ export function App() {
   const [snapshot, setSnapshot] = useState<AccountSnapshot>();
   const [progress, setProgress] = useState(readProgress);
   const connection = useAccount();
-  const walletAddress = connection.address;
+  const liveWallet = useLiveWallet(connection);
+  const walletAddress = liveWallet.address;
   const [recoveryHandoff, setRecoveryHandoff] = useState<RecoveryHandoff>();
   const connectedAccount = useConnectedAccount(walletAddress, true, rpcOverrides, recoveryHandoff);
   // The read source follows the live connection, never a saved or previous wallet.
@@ -124,7 +127,9 @@ export function App() {
   }, []);
   async function provider(): Promise<EIP1193Provider> {
     const selected = await connection.connector?.getProvider();
-    if (!selected) throw new Error(t("Conecte sua carteira primeiro.", "Connect your wallet first."));
+    if (!selected || !walletAddress) throw new Error(t("Conecte sua carteira primeiro.", "Connect your wallet first."));
+    const accounts = walletAccounts(await (selected as EIP1193Provider).request({ method: "eth_accounts" }));
+    if (!accounts[0] || !same(accounts[0], walletAddress)) throw new Error(t("A carteira mudou. Aguarde a atualização do diagnóstico antes de continuar.", "The wallet changed. Wait for diagnosis to update before continuing."));
     return selected as EIP1193Provider;
   }
   function goToStep(next: 0 | 1 | 2 | 3) {
@@ -315,6 +320,8 @@ export function App() {
           {step > 1 && diagnosis.results.some(r => r.status === "scanning" || r.status === "queued") && <p className="small muted" role="status">{t("O diagnóstico das outras redes continua em segundo plano.", "Diagnosis of the other networks continues in the background.")}</p>}
           {step <= 1 && connectedAccount?.status === "error" && <p className="message warning" role="alert">{t("Não foi possível verificar a conta Picnic vinculada. Confira o RPC da Gnosis em Avançado; os saldos da carteira conectada não incluem necessariamente os da Picnic.", "The linked Picnic account could not be verified. Check the Gnosis RPC under Advanced; the connected wallet's balances may not include your Picnic funds.")}</p>}
           {step <= 1 && connectedAccount?.status === "ready" && !!connectedAccount.issues?.length && <p className="note">{t("A conta exibida foi verificada, mas a busca por outras contas de recuperação ficou incompleta.", "The displayed account was verified, but the search for other recovery accounts is incomplete.")} <button className="text-button" disabled={busy} onClick={() => connectedAccount.retry()}>{t("Tentar concluir a busca", "Retry discovery")}</button></p>}
+          {liveWallet.status === "checking" && <p className="note" role="status">{t("Verificando a carteira conectada…", "Checking connected wallet…")}</p>}
+          {liveWallet.status === "error" && <p className="message error" role="alert">{t("Não foi possível confirmar a carteira ativa. Abra sua carteira e confira a conexão com este site.", "Could not confirm the active wallet. Open your wallet and check its connection to this site.")}</p>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}
           {step === 2 && <PrepareMigration recovery={<RecoveryPreparation account={account} results={diagnosis.results} wallet={walletAddress} owner={owner} setOwner={setOwner}
