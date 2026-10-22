@@ -33,12 +33,23 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
   const pendingCount = otherPending.length + (incomplete.length > 0 ? 1 : 0) + customErrors.length;
   const continuation = diagnosisNext(results, wallet, custom);
   const [view, setView] = useState<"assets" | "pending">("assets");
-  return <section className="panel diagnosis">
+  const title = !wallet ? t("Uma conta. Todas as redes.", "One account. Every network.")
+    : identifying ? t("Identificando suas contas…", "Finding your accounts…")
+    : loading || !results.length ? t("Buscando seus ativos…", "Finding your assets…")
+    : pendingCount ? t("Confira as pendências.", "Review the pending checks.")
+    : continuation ? t("Tudo verificado.", "Everything checked.") : t("Consulta concluída.", "Scan complete.");
+  const heading = <div className="diagnosis-heading">
     <p className="eyebrow">{t("PASSO 0 / DIAGNÓSTICO AUTOMÁTICO", "STEP 0 / AUTOMATIC DIAGNOSIS")}</p>
-    <h2>{t("Uma conta. Todas as redes.", "One account. Every network.")}</h2>
+    <h2 data-screen-heading tabIndex={-1}>{title}</h2>
+    <p>{!wallet ? t("Conecte sua carteira para identificar suas contas e encontrar seus ativos.", "Connect your wallet to identify your accounts and find your assets.")
+      : identifying || loading || !results.length ? t("As contas e os saldos aparecem conforme as consultas chegam. Nenhuma assinatura é pedida.", "Accounts and balances appear as checks finish. No signature is requested.")
+      : t("Saldos consultados direto na blockchain. Seu dinheiro continua na conta de origem.", "Balances checked directly on-chain. Your money remains in the source account.")}</p>
+  </div>;
+  return <section className="panel diagnosis">
+    <div className="diagnosis-canvas">
+    {results.length > 0 ? <DiagnosisOverview heading={heading} results={results} custom={custom} pendingCount={pendingCount} lang={lang} /> : heading}
+    <div className="diagnosis-relay">
     <LinkedAccounts compact account={account} wallet={wallet} picnicAccount={picnicAccount} identifying={identifying} results={results} busy={busy} lang={lang} />
-    {results.length > 0 && <DiagnosisOverview results={results} custom={custom} pendingCount={pendingCount} lang={lang} />}
-    {recovery}
     {(results.length > 0 || identifying) && !recovery && <div className="diagnosis-continue">
       <p className={`small${waitingToContinue || !continuation ? " muted" : ""}`}>{waitingToContinue ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
         : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
@@ -48,6 +59,9 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
         {waitingToContinue ? t("Aguarde a verificação…", "Checking your accounts…") : t("Próximo passo →", "Next step →")}
       </button>
     </div>}
+    </div>
+    {recovery}
+    </div>
     {results.length > 0 && <details className="diagnosis-details">
       <summary>{t("Ver ativos e pendências em detalhe", "View assets and issues in detail")}{pendingCount > 0 && <span className="tab-count">{pendingCount}</span>}</summary>
     <div className="diagnosis-tabs" role="tablist" aria-label={t("Resultado do diagnóstico", "Diagnosis results")}>

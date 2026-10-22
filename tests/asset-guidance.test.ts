@@ -91,6 +91,7 @@ it("keeps the overview and next action before a large collapsed inventory", () =
     setRpc: () => {}, rescan: () => {}, retryPending: () => {}, open: () => {}, addCustom: async () => undefined, removeCustom: () => {}, retryCustom: () => {},
   }));
   expect(html).toContain('aria-label="Resumo do diagnóstico"');
+  expect(html).toContain("Tudo verificado.");
   expect(html).toContain('<dd>150<small>em 1 rede(s)</small>');
   expect(html).toContain('<details class="diagnosis-details">');
   expect(html.indexOf('class="diagnosis-continue"')).toBeLessThan(html.indexOf('class="diagnosis-details"'));
@@ -110,6 +111,7 @@ it("keeps loading and incomplete reads visible in the overview while details are
   }));
   const overview = html.slice(0, html.indexOf('class="diagnosis-details"'));
   expect(overview).toContain('Consulta incompleta');
+  expect(overview).not.toContain("Tudo verificado.");
   expect(overview).toContain('Saldos não verificados são desconhecidos, não zero');
   expect(overview).toContain('value="150" max="300"');
   expect(overview).toContain('aria-busy="true" disabled=""');

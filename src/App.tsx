@@ -1,4 +1,5 @@
 import { displayError } from "./core/errors";
+import { RecoveryLanding } from "./components/RecoveryLanding";
 import { ModuleLoadNotice } from "./components/ModuleLoadNotice";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatUnits, type Address, type EIP1193Provider, type Hex } from "viem";
@@ -40,6 +41,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 function Chip({ children }: { children: ReactNode }) { return <span className="chip">{children}</span>; }
 export function App() {
+  const [started, setStarted] = useState(false);
   const [lang, setLang] = useState<"pt" | "en">("pt");
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [chainId, setChainId] = useState(100);
@@ -56,6 +58,7 @@ export function App() {
   const account = walletAddress ? connectedAccount?.account ?? walletAddress : "";
   const diagnosis = useDiagnosis(account, rpcOverrides);
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
+  useEffect(() => { if (started) document.querySelector<HTMLElement>("[data-screen-heading]")?.focus({ preventScroll: true }); }, [started]);
   // Every known guardian of this source account (any network, connected or
   // not). Sending re-reads the source Safe's guardians again.
   // What to move, chosen in Prepare wallets and enforced in Move funds.
@@ -252,26 +255,10 @@ export function App() {
     language: lang === "pt" ? "pt-BR" : "en-US", hideBalance: true,
     hideNoWalletCTA: true, hideRecentBadge: true, enforceSupportedChains: false, walletConnectName: "WalletConnect",
     disableSiweRedirect: true, embedGoogleFonts: false,
-  }}><div className={`shell${step <= 1 ? " diagnosis-shell" : ""}`}>
+  }}><div className={`shell recovery-shell ${started ? "dashboard-shell" : "landing-shell"}${started && step <= 1 ? " diagnosis-shell" : ""}`}>
     <header>
-      <a className="brand" href="./"><img className="brand-logo" src="./brand/picnic-wordmark.svg" alt="picnic" width="90" height="29" /><span className="brand-sub">recovery</span></a>
-      <div className="header-actions"><Chip>{t("Direto na blockchain", "Directly on-chain")}</Chip>
-        <button className="quiet" onClick={() => setLang(lang === "pt" ? "en" : "pt")} aria-label="Change language">{lang === "pt" ? "EN" : "PT"}</button>
-      </div>
-    </header>
-    <main>
-      <ModuleLoadNotice lang={lang} busy={busy} />
-      {demo && <p role="status" className="message warning">DEMO · Local Anvil wallet · No real funds</p>}
-      <section className="hero">
-        <p className="eyebrow">{t("SEU ACESSO INDEPENDENTE", "YOUR INDEPENDENT ACCESS")}</p>
-        <h1>{t("Seu dinheiro.", "Your money.")}<br /><em>{t("Nas suas mãos.", "In your hands.")}</em></h1>
-        <p className="intro">{t("Recupere sua carteira e retire seus ativos sem depender dos servidores da Picnic. Suas chaves ficam na sua carteira.", "Recover your wallet and withdraw assets without Picnic's servers. Your keys stay in your wallet.")}</p>
-        <div className="hero-foot"><span>↗ {t("Sem login Picnic", "No Picnic login")}</span><span>↗ Open source</span><span>↗ {t("Executável localmente", "Runs locally")}</span></div>
-      </section>
-      <div className="workspace">
-        <aside>
-          <p className="eyebrow">{t("SEU CAMINHO", "YOUR PATH")}</p>
-          <nav className="steps" aria-label={t("Etapas", "Steps")}>
+      <a className="brand" href="./" aria-disabled={busy} onClick={event => { event.preventDefault(); if (!busy) setStarted(false); }}><img className="brand-logo" src="./brand/picnic-wordmark.svg" alt="picnic" width="90" height="29" /><span className="brand-sub">recovery</span></a>
+      {started && <nav className="steps" aria-label={t("Etapas", "Steps")}>
             {([
               [0, t("Diagnóstico", "Diagnosis"), t("Todas as redes, automaticamente", "All networks, automatically")],
               [2, t("Preparar carteiras", "Prepare wallets"), t("Destino e saldo para taxas", "Destination and fee balance")],
@@ -279,9 +266,18 @@ export function App() {
             ] as const).map(([target, title, subtitle], index) => <button key={target} disabled={busy} aria-current={(step <= 1 ? 0 : step) === target ? "step" : undefined} className={(step <= 1 ? 0 : step) === target ? "nav-active" : ""} onClick={() => goToStep(target)}>
               <span className="step-number">{index}</span><span>{title}<small>{subtitle}</small></span>
             </button>)}
-          </nav>
-          <a className="source-link" href="https://github.com/usePicnic/picnic-recovery" target="_blank" rel="noreferrer">GitHub ↗</a>
-        </aside>
+          </nav>}
+      <div className="header-actions">{started && <button className="quiet home-button" disabled={busy} onClick={() => setStarted(false)}>{t("Início", "Home")}</button>}<Chip>{t("Direto na blockchain", "Directly on-chain")}</Chip>
+        <button className="quiet" onClick={() => setLang(lang === "pt" ? "en" : "pt")} aria-label="Change language">{lang === "pt" ? "EN" : "PT"}</button>
+      </div>
+    </header>
+    {!started ? <RecoveryLanding lang={lang} start={() => setStarted(true)} /> : <>
+    <main>
+      <ModuleLoadNotice lang={lang} busy={busy} />
+      {demo && <p role="status" className="message warning">DEMO · Local Anvil wallet · No real funds</p>}
+
+      <div className="workspace">
+
         <div className="content">
           {step <= 1 ? <DiagnosisPanel account={account}
             picnicAccount={connectedAccount?.status === "ready" && connectedAccount.account && !same(connectedAccount.account, walletAddress ?? "") ? connectedAccount.account : undefined}
@@ -440,6 +436,7 @@ export function App() {
         </div>
       </div>
     </main>
-    <footer><span>picnic recovery · {t("Código aberto. Controle seu.", "Open source. Your control.")}</span><span>{t("Sem rastreamento · Sem custódia de chaves", "No tracking · No key custody")}</span></footer>
+    <footer className="app-footer"><span>picnic recovery · {t("Código aberto. Controle seu.", "Open source. Your control.")}</span><span>{t("Sem rastreamento · Sem custódia de chaves", "No tracking · No key custody")}</span></footer>
+    </>}
   </div></ConnectKitProvider>;
 }
