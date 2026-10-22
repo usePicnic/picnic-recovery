@@ -33,12 +33,21 @@ export function assertSeparateRecipient(recipient: string, wallet?: Address, gua
   if (wallet && same(normalized, wallet)) throw new Error("Use a destination wallet different from the connected signing wallet");
 }
 
-// New owner proposed in a recovery: must differ from the Safe and its guardians.
-export function newOwnerError(owner: string, snapshot: AccountSnapshot): "invalid" | "guardian" | "source" | undefined {
+// Candide 0.1.0: a guardian MUST NOT become the recovered owner. Keep this
+// policy until the team explicitly approves the 0.2.0 upgrade; never infer an
+// exemption from a runtime/period change. Applies to pending finalizations too.
+export function newOwnerError(owner: string, snapshot: AccountSnapshot, guardians: readonly string[] = []): "invalid" | "guardian" | "source" | undefined {
   if (!owner.trim()) return;
   try {
     const value = address(owner);
     if (same(value, snapshot.address)) return "source";
-    if (snapshot.recoveries.some(r => r.guardians.some(g => same(g, value)))) return "guardian";
+    if (guardians.some(g => same(g, value)) || snapshot.recoveries.some(r => r.guardians.some(g => same(g, value)))) return "guardian";
   } catch { return "invalid"; }
+}
+
+export function assertRecoveryOwner(owner: string, snapshot: AccountSnapshot) {
+  const problem = newOwnerError(owner, snapshot);
+  if (!owner.trim() || problem) throw new Error(problem === "guardian"
+    ? "The new owner cannot be a recovery guardian of this account"
+    : "The new owner must be a valid address different from the Safe");
 }

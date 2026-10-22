@@ -25,10 +25,10 @@ export async function readRecoveryPreparation(client: PublicClient, account: Add
   }));
   return { snapshot, gas, approvals };
 }
-export function recoveryPermissions(data: RecoveryPreparation, recovery: RecoveryState, wallet: Address | undefined, proposedOwner: string) {
+export function recoveryPermissions(data: RecoveryPreparation, recovery: RecoveryState, wallet: Address | undefined, proposedOwner: string, guardians: readonly string[] = []) {
   const owner = !!wallet && data.snapshot.owners.some(a => same(a, wallet));
   const guardian = !!wallet && recovery.guardians.some(a => same(a, wallet));
-  const validOwner = !!proposedOwner.trim() && !newOwnerError(proposedOwner, data.snapshot);
+  const validOwner = !!proposedOwner.trim() && !newOwnerError(proposedOwner, data.snapshot, guardians);
   const approvals = data.approvals[recovery.module.toLowerCase()];
   const pending = recovery.pending.executeAfter > 0n;
   const compatible = recovery.supported && recovery.threshold > 0n;
@@ -37,7 +37,7 @@ export function recoveryPermissions(data: RecoveryPreparation, recovery: Recover
     owner, guardian, validOwner, approvals, pending, funded, compatible,
     approve: compatible && funded && guardian && !pending && validOwner && !!approvals && !approvals.approved,
     start: compatible && funded && !pending && validOwner && !!approvals && approvals.count >= recovery.threshold,
-    finalize: compatible && funded && pending && recovery.pending.executeAfter <= data.snapshot.timestamp && recovery.pending.newOwners.length === 1 && recovery.pending.newThreshold === 1n,
+    finalize: compatible && funded && pending && recovery.pending.executeAfter <= data.snapshot.timestamp && recovery.pending.newOwners.length === 1 && recovery.pending.newThreshold === 1n && !newOwnerError(recovery.pending.newOwners[0], data.snapshot, guardians),
     cancel: compatible && funded && owner && pending,
   };
 }

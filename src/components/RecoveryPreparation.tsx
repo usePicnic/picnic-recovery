@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatUnits, type Address } from "viem";
 import { chainById } from "../catalog/chains";
 import { same, publicClient } from "../core/client";
-import { newOwnerError } from "../core/destination";
+import { knownGuardians, newOwnerError } from "../core/destination";
 import { displayError } from "../core/errors";
 import type { NetworkDiagnosis } from "../core/diagnosis";
 import type { AccountSnapshot } from "../core/types";
@@ -12,7 +12,7 @@ import { ChainLogo } from "./ChainLogo";
 
 type Operation = "approve" | "start" | "finalize" | "cancel";
 type Props = {
-  account: string; results: NetworkDiagnosis[]; wallet?: Address; owner: string; setOwner: (value: string) => void;
+  guardians?: readonly Address[]; account: string; results: NetworkDiagnosis[]; wallet?: Address; owner: string; setOwner: (value: string) => void;
   overrides: RpcOverrides; busy: boolean; blocked: boolean; lang: "pt" | "en"; connect: () => void;
   run: (task: () => Promise<void>) => Promise<void>;
   onSnapshot: (snapshot: AccountSnapshot) => void;
@@ -31,16 +31,17 @@ export function RecoveryPreparation(props: Props) {
   const fingerprint = snapshots.map(s => `${s.chainId}:${s.block}`).join("|");
   useEffect(() => { setTracked({ account, snapshots }); }, [account, fingerprint]);
   if (!snapshots.length) return null;
+  const guardians = knownGuardians(results.map(r => r.snapshot), account);
   const needsOwner = snapshots.some(s => s.passkey === "detected" && !s.owners.some(a => wallet && same(a, wallet)) && !s.recoveries.some(r => r.pending.executeAfter));
   return <section className="recovery-preparation" aria-labelledby="prepare-recovery-title">
     <h3 id="prepare-recovery-title">{t("Recuperar acesso", "Recover access")}</h3>
     <p>{t("Contas com passkey podem ser recuperadas usando o guardian configurado. A recuperação troca a carteira que controla a conta; seus ativos continuam nela.", "Passkey accounts can be recovered using their configured guardian. Recovery changes the wallet controlling the account; your assets stay in it.")}</p>
     {needsOwner && <label className="field"><span>{t("Nova carteira que vai controlar a conta", "New wallet to control the account")}</span><input value={owner} disabled={props.busy} onChange={e => setOwner(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" /></label>}
     <p className="small muted">{t("A nova carteira deve ser sua e diferente de todos os guardians. Cada rede tem suas próprias aprovações e prazo.", "The new wallet must be yours and different from every guardian. Each network has its own approvals and waiting period.")}</p>
-    {snapshots.map(snapshot => <RecoveryNetwork key={`${account}:${snapshot.chainId}`} {...props} initial={snapshot} />)}
+    {snapshots.map(snapshot => <RecoveryNetwork key={`${account}:${snapshot.chainId}`} {...props} guardians={guardians} initial={snapshot} />)}
   </section>;
 }
-function RecoveryNetwork({ initial, wallet, owner, overrides, busy, blocked, lang, connect, run, perform, onSnapshot }: Props & { initial: AccountSnapshot }) {
+function RecoveryNetwork({ initial, guardians = [], wallet, owner, overrides, busy, blocked, lang, connect, run, perform, onSnapshot }: Props & { initial: AccountSnapshot }) {
   const chain = chainById(initial.chainId), rpc = rpcFor(chain.id, overrides);
   const key = `${initial.address}:${chain.id}:${wallet ?? ""}:${owner.trim().toLowerCase()}:${rpc}`;
   const [state, setState] = useState<{ key: string; data?: Checks; error?: string; loading?: boolean }>();
@@ -68,7 +69,7 @@ function RecoveryNetwork({ initial, wallet, owner, overrides, busy, blocked, lan
   const snapshot = data?.snapshot ?? initial;
   const connectedOwner = !!wallet && snapshot.owners.some(a => same(a, wallet));
   const pending = snapshot.recoveries.some(r => r.pending.executeAfter > 0n);
-  const problem = newOwnerError(owner, snapshot);
+  const problem = newOwnerError(owner, snapshot, guardians);
   const disabled = busy || blocked || !data || !!state?.loading;
   const act = (module: Address, mode: Operation) => void run(async () => {
     if (disabled || !data) return;
@@ -89,14 +90,16 @@ function RecoveryNetwork({ initial, wallet, owner, overrides, busy, blocked, lan
       {snapshot.passkey !== "detected" && !pending ? <p>{t("A conta agora é controlada por:", "The account is now controlled by:")} {snapshot.owners.map(a => <span className="mono" key={a}>{a} </span>)}<button className="text-button" onClick={connect} disabled={busy}>{t("Conectar a nova carteira no diagnóstico", "Connect the owner wallet in diagnosis")}</button></p>
       : !snapshot.recoveries.some(r => r.supported && r.threshold > 0n) ? <p className="table-error">{t("Nenhum módulo de recuperação compatível foi encontrado. É necessário um owner ou outra rota de recuperação.", "No supported recovery module was found. An owner or another recovery route is required.")}</p>
       : snapshot.recoveries.filter(r => r.supported && r.threshold > 0n).map(r => {
-        const allowed = recoveryPermissions(data, r, wallet, owner);
+        const allowed = recoveryPermissions(data, r, wallet, owner, guardians);
+        const guardianTarget = r.pending.newOwners.some(owner => newOwnerError(owner, snapshot, guardians) === "guardian");
         return <div className="recovery-module" key={r.module}>
           <p className="small muted">{t("Módulo", "Module")}: <span className="mono">{r.module}</span></p>
           {allowed.pending ? <>
-            <strong>{snapshot.timestamp < r.pending.executeAfter ? t("Aguardando o prazo de recuperação", "Waiting for recovery delay") : t("Pronta para finalizar", "Ready to finalize")}</strong>
+            <strong>{guardianTarget ? t("Recuperação bloqueada", "Recovery blocked") : snapshot.timestamp < r.pending.executeAfter ? t("Aguardando o prazo de recuperação", "Waiting for recovery delay") : t("Pronta para finalizar", "Ready to finalize")}</strong>
             <p className="small">{t("Nova carteira", "New wallet")}: {r.pending.newOwners.map(a => <span className="mono" key={a}>{a} </span>)}</p>
             <p className="small">{t("Finalização a partir de", "Earliest finalization")}: {new Date(Number(r.pending.executeAfter) * 1000).toLocaleString(lang)}. {t("Verificação automática a cada 15 segundos.", "Checked automatically every 15 seconds.")}</p>
             {(r.pending.newOwners.length !== 1 || r.pending.newThreshold !== 1n) && <p className="table-error">{t("Esta recuperação envolve múltiplos owners e precisa de revisão fora deste fluxo.", "This recovery involves multiple owners and needs review outside this flow.")}</p>}
+            {guardianTarget && <p className="table-error" role="alert">{t("Recuperação bloqueada: a nova carteira é um guardian. Não finalize esta recuperação. O owner atual pode cancelá-la.", "Recovery blocked: the new wallet is a guardian. Do not finalize this recovery. The current owner can cancel it.")}</p>}
             <div className="row"><button disabled={disabled || !allowed.finalize} onClick={() => act(r.module, "finalize")}>{t("Finalizar na carteira", "Finalize in wallet")}</button>
               {allowed.owner && <button className="text-button" disabled={disabled || !allowed.cancel} onClick={() => act(r.module, "cancel")}>{t("Cancelar recuperação", "Cancel recovery")}</button>}</div>
           </> : <>

@@ -6,6 +6,7 @@ import { safeAbi, recoveryAbi, erc20Abi } from "./abi";
 import { verifyReceipt, safeReceiptSucceeded, type ReceiptExpectation } from "./receipts";
 import { address, assertChain, same } from "./client";
 import { assertSupportedSafe, inspectAccount, inspectRecovery } from "./inspect";
+import { assertRecoveryOwner } from "./destination";
 import { assertBatchPayload, multiSendCall, verifyMultiSendRuntime } from "./multisend";
 import type { AccountSnapshot, Call, PreparedAction, Receive } from "./types";
 
@@ -52,13 +53,14 @@ export function recoveryAction(
   if (mode === "finalize") {
     if (!pending.executeAfter || pending.executeAfter > snapshot.timestamp) throw new Error("Recovery is not ready");
     if (pending.newOwners.length !== 1 || pending.newThreshold !== 1n) throw new Error("Review a multi-owner recovery outside this flow");
+    assertRecoveryOwner(pending.newOwners[0], snapshot);
     return { kind: "direct", chainId: snapshot.chainId, account: snapshot.address,
       call: { to: module, value: 0n, data: encodeFunctionData({ abi: recoveryAbi, functionName: "finalizeRecovery", args: [snapshot.address] }) },
       label: "Finalize recovery", recovery: binding, expectedOwner: pending.newOwners[0] };
   }
   if (pending.executeAfter !== 0n) throw new Error("A recovery is already pending. Review it before proceeding");
   const owner = address(proposedOwner ?? "");
-  if (same(owner, snapshot.address) || recovery.guardians.some(g => same(g, owner))) throw new Error("The new owner must differ from the Safe and every guardian");
+  assertRecoveryOwner(owner, snapshot);
   return {
     kind: "direct", chainId: snapshot.chainId, account: snapshot.address,
     call: { to: module, value: 0n, data: mode === "start"
@@ -131,10 +133,13 @@ export async function connectedWallet(provider: EIP1193Provider, chainId: number
 async function assertFresh(client: PublicClient, action: PreparedAction) {
   await assertChain(client, action.chainId);
   if (action.recovery) {
-    const state = await inspectRecovery(client, action.account, action.recovery.module);
-    if (!state.supported || state.nonce !== action.recovery.nonce || state.pending.executeAfter !== action.recovery.pendingAfter) {
+    const snapshot = await inspectAccount(client, action.account, action.chainId);
+    assertSupportedSafe(snapshot);
+    const state = snapshot.recoveries.find(r => same(r.module, action.recovery!.module));
+    if (!state?.supported || state.nonce !== action.recovery.nonce || state.pending.executeAfter !== action.recovery.pendingAfter) {
       throw new Error("Recovery state changed. Inspect and review again");
     }
+    for (const owner of [action.expectedOwner, action.approval?.owner].filter((a): a is Address => !!a)) assertRecoveryOwner(owner, snapshot);
     if (action.recovery.pendingAfter && action.expectedOwner &&
       (state.pending.newOwners.length !== 1 || !same(state.pending.newOwners[0], action.expectedOwner) || state.pending.newThreshold !== 1n)) {
       throw new Error("Pending recovery target changed");
@@ -143,7 +148,7 @@ async function assertFresh(client: PublicClient, action: PreparedAction) {
 }
 export const actionReceives = (action: PreparedAction): Receive[] => [...action.receive ? [action.receive] : [], ...action.receives ?? []];
 export function assertAllowedRecipients(action: PreparedAction, forbidden: readonly string[]) {
-  const blocked = [...actionReceives(action).map(effect => effect.recipient), ...action.destinations ?? [], ...action.nfts?.map(nft => nft.recipient) ?? []]
+  const blocked = [...(action.recovery ? [action.expectedOwner, action.approval?.owner].filter((a): a is Address => !!a) : []), ...actionReceives(action).map(effect => effect.recipient), ...action.destinations ?? [], ...action.nfts?.map(nft => nft.recipient) ?? []]
     .find(recipient => forbidden.some(address => same(address, recipient)));
   if (blocked) throw new Error("The destination is a recovery guardian of this account. Choose a wallet that is not a guardian");
 }
@@ -197,6 +202,7 @@ export async function sendAction(
   if (action.approval) {
     const { module, owner, nonce } = action.approval;
     const state = await inspectRecovery(client, action.account, module);
+    if (state.guardians.some(g => same(g, owner))) throw new Error("The new owner cannot be a recovery guardian of this account");
     if (!state.guardians.some(g => same(g, sender))) throw new Error("Connected wallet is not a recovery guardian");
     onSigning?.("signature");
     const signature = await wallet.signTypedData({

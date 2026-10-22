@@ -321,7 +321,7 @@ export function App() {
             overrides={rpcOverrides} busy={busy} blocked={uncertain} lang={lang} connect={() => goToStep(0)} run={run} onSnapshot={diagnosis.updateSnapshot}
             perform={async (current, module, mode, proposedOwner) => {
               if (uncertain || !walletAddress || !same(current.address, account)) throw new Error(t("Confira a conta e a transação pendente antes de continuar.", "Check the account and pending transaction before continuing."));
-              const action = { ...recoveryAction(current, module, mode, proposedOwner), expectedSender: walletAddress };
+              const action = { ...recoveryAction(current, module, mode, proposedOwner), expectedSender: walletAddress, forbiddenRecipients: guardians };
               const reader = publicClient(chainById(current.chainId), rpcFor(current.chainId, rpcOverrides));
               const receipt = await sendAction(reader, await provider(), action, (hash, expectation) => record({ chainId: current.chainId, account: current.address, label: action.label, hash, expectation }));
               confirmed(receipt.transactionHash);
