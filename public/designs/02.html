@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mockup 02 · Tipografia central</title>
+<link rel="icon" href="../favicon-32x32.png">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+html[data-current="inicio"],html[data-current="inicio"] body{background:var(--ink)}
+.on-ink{background:var(--ink);color:var(--on-ink)}
+.top{display:flex;align-items:center;gap:24px;height:68px;padding:0 48px}
+.top-end{margin-left:auto;display:flex;align-items:center;gap:18px}
+.chip{font-size:11px;border:1px solid var(--ink-line);color:var(--on-ink-muted);border-radius:99px;padding:4px 10px;white-space:nowrap}
+.lang{background:none;border:0;color:var(--on-ink);font-size:13px;font-weight:600;padding:6px;cursor:pointer}
+.top-link{font-size:13px;color:var(--on-ink-muted);text-decoration:none}
+.top-link:hover{color:var(--on-ink);text-decoration:underline}
+.kicker{font-size:11.5px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--lime)}
+
+/* Landing */
+.stage{min-height:100vh;display:flex;flex-direction:column}
+.type{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:12px 48px 28px}
+.type h1{font-size:72px;line-height:1;font-weight:760;letter-spacing:-3.2px;margin:22px 0 14px;white-space:nowrap}
+.type h1 .w{position:relative;display:inline-block;margin:0 .1em}
+.type h1 sup{position:absolute;top:2px;left:-16px;font-size:13px;font-weight:600;letter-spacing:0;color:var(--on-ink-muted);font-family:var(--mono)}
+.type h1 .lime{color:var(--lime)}
+.legend{display:flex;gap:22px;justify-content:center;font-size:12.5px;color:var(--on-ink-muted);font-family:var(--mono);letter-spacing:-.2px}
+.legend b{color:var(--on-ink);font-weight:600;margin-right:6px}
+.sub{font-size:18px;line-height:1.6;color:#D9DBD4;max-width:640px;margin:26px auto 30px}
+.btn-giant{padding:19px 54px;font-size:19px;font-weight:700;box-shadow:0 0 0 6px rgba(204,255,0,.12)}
+.btn-giant:hover{box-shadow:0 0 0 9px rgba(204,255,0,.16)}
+.hint{margin-top:16px;font-size:12.5px;color:var(--on-ink-muted)}
+.base{padding:18px 48px 24px;border-top:1px solid var(--ink-line);display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.nets{display:flex;gap:16px;flex-wrap:wrap}
+.nets li{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--on-ink-muted)}
+.facts{display:flex;gap:16px;font-size:12px;color:var(--on-ink-muted)}
+.facts li{display:inline-flex;align-items:center;gap:6px}
+
+/* Flow: status-first canvas */
+.canvas{padding-bottom:28px}
+.pills{display:flex;gap:6px}
+.pills li{display:flex;align-items:center;gap:8px;padding:7px 14px 7px 8px;border-radius:99px;border:1px solid var(--ink-line);font-size:12.5px;color:var(--on-ink-muted);white-space:nowrap}
+.pills b{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--ink-3);color:var(--on-ink);font-size:11px}
+.pills li[aria-current]{background:var(--on-ink);color:var(--ink);border-color:var(--on-ink);font-weight:650}
+.pills li[aria-current] b{background:var(--lime);color:var(--ink)}
+.status{display:flex;align-items:center;justify-content:space-between;gap:40px;padding:22px 48px 0}
+.status-main{display:flex;gap:20px;align-items:flex-start;max-width:600px}
+.big-tick{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;background:var(--lime);color:var(--ink);flex:none;margin-top:6px}
+.status h1{font-size:46px;line-height:1.05;font-weight:750;letter-spacing:-1.8px;margin:6px 0 10px}
+.status p:last-child{font-size:14.5px;line-height:1.55;color:#D2D5CD}
+.nums{display:flex;gap:0}
+.nums div{padding:4px 30px;border-left:1px solid var(--ink-line)}
+.nums dd{font-size:52px;line-height:1;font-weight:720;letter-spacing:-2px;font-variant-numeric:tabular-nums}
+.nums dd small{font-size:22px;font-weight:600;color:var(--on-ink-muted);letter-spacing:-.5px}
+.nums dt{font-size:12px;line-height:1.4;color:var(--on-ink-muted);margin-top:8px}
+.tiles{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:8px;padding:26px 48px 0}
+.tiles li{background:var(--ink-2);border:1px solid var(--ink-line);border-radius:12px;padding:12px 12px 11px;min-width:0}
+.tiles .t-head{display:flex;justify-content:space-between;align-items:center}
+.tiles .tick{width:16px;height:16px}
+.tiles .t-name{display:block;font-size:12px;color:var(--on-ink-muted);margin-top:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tiles .t-n{display:block;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.tiles .t-n small{font-size:11.5px;font-weight:500;color:var(--on-ink-muted);margin-left:4px}
+.tiles li.zero .t-n{color:var(--on-ink-muted);font-size:13px;font-weight:500;padding:3px 0 2px}
+.relay{display:flex;align-items:center;justify-content:space-between;gap:24px;margin:20px 48px 0;padding:14px 14px 14px 20px;border-radius:16px;background:var(--ink-3)}
+.accts{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px}
+.acct{display:flex;align-items:center;gap:10px}
+.acct .ic{color:var(--lime)}
+.acct strong{display:block;font-size:12px;font-weight:600;color:var(--on-ink-muted)}
+.acct .mono{font-size:13.5px}
+.link-word{font-size:11.5px;color:var(--on-ink-muted);padding:3px 9px;border:1px dashed var(--ink-line);border-radius:99px}
+.accts .btn-text{color:var(--on-ink-muted);font-size:12px;margin-left:6px}
+.go{display:flex;align-items:center;gap:16px}
+.go p{font-size:12.5px;line-height:1.4;color:#D2D5CD;text-align:right}
+.go p span{display:block;font-size:10.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--lime)}
+.go .btn{padding:14px 26px;white-space:nowrap}
+
+.inventory{padding:34px 48px 10px;max-width:1280px;margin:auto}
+.inv-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:16px}
+.inv-head h2{font-size:22px;letter-spacing:-.5px}
+.inv-head p{font-size:12.5px;color:var(--muted)}
+.cards{columns:3;column-gap:16px}
+.ncard{break-inside:avoid;background:var(--white);border:1px solid var(--line);border-radius:14px;margin-bottom:16px}
+.ncard>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:14px 16px;font-weight:650}
+.ncard>summary::-webkit-details-marker{display:none}
+.ncard>summary .n{margin-left:auto;font-size:12px;font-weight:500;color:var(--muted)}
+.ncard>summary .ic{color:var(--muted);transition:transform .15s}
+.ncard[open]>summary .ic{transform:rotate(180deg)}
+.ncard ul{padding:0 16px 8px}
+.ncard li{padding:8px 0;border-top:1px solid var(--line-2);font-size:13px}
+.ncard .card-form{margin:4px 16px 14px;padding:12px 14px;background:var(--soft-2);border-radius:10px;font-size:13px}
+.ncard .card-form summary{font-weight:600}
+.empty-note{font-size:12.5px;color:var(--muted);margin:2px 0 18px;display:flex;align-items:center;gap:8px}
+.utils{display:flex;gap:28px;flex-wrap:wrap;padding:16px 0;border-top:1px solid var(--line);font-size:13px}
+.utils details{flex:1;min-width:260px}
+.utils summary{font-weight:600}
+.utils p{font-size:12.5px;color:var(--muted);margin-top:8px}
+.foot{max-width:1280px;margin:auto;padding:14px 48px 26px;color:var(--muted)}
+
+@media (max-width:720px){
+  .top{padding:0 18px;height:60px;gap:12px}
+  .top .chip{display:none}
+  .type{padding:20px 18px 28px}
+  .type h1{white-space:normal;font-size:56px;letter-spacing:-2.4px;line-height:1.02;display:flex;flex-direction:column;align-items:center}
+  .type h1 sup{left:-14px}
+  .legend{flex-direction:column;gap:4px}
+  .sub{font-size:15.5px;margin:22px auto 24px}
+  .btn-giant{width:100%}
+  .base{padding:16px 18px 22px;flex-direction:column;align-items:flex-start}
+  .nets{gap:8px 12px}
+  .facts{flex-wrap:wrap;gap:8px 14px}
+  [data-view="fluxo"] .top{flex-wrap:wrap;height:auto;padding:12px 18px}
+  .pills{order:3;width:100%;overflow-x:auto}
+  .pills li{padding:6px 10px 6px 6px;font-size:11.5px}
+  .status{flex-direction:column;align-items:stretch;gap:20px;padding:12px 18px 0}
+  .big-tick{width:40px;height:40px}
+  .status h1{font-size:34px}
+  .nums div{padding:0 14px;flex:1}
+  .nums div:first-child{border-left:0;padding-left:0}
+  .nums dd{font-size:36px}
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr));padding:20px 18px 0}
+  .tiles li{display:flex;align-items:center;gap:10px;padding:10px}
+  .tiles .t-head{order:0}
+  .tiles .t-head .tick{display:none}
+  .tiles .t-name{margin:0;flex:1}
+  .relay{flex-direction:column;align-items:stretch;margin:18px 18px 0;padding:16px}
+  .go{flex-direction:column;align-items:stretch}
+  .go p{text-align:left}
+  .inventory{padding:26px 18px 8px}
+  .inv-head{flex-direction:column;gap:2px}
+  .cards{columns:1}
+  .foot{padding:12px 18px 24px}
+}
+</style>
+</head>
+<body data-title-inicio="Mockup 02 · Tipografia central — Início" data-title-fluxo="Mockup 02 · Tipografia central — Diagnóstico">
+
+<div data-view="inicio" class="stage on-ink">
+  <header class="top">
+    <a class="lockup" href="#inicio"><img class="wordmark" src="../brand/picnic-wordmark.svg" alt="picnic" width="90" height="29"><span>recovery</span></a>
+    <div class="top-end"><span class="chip">Direto na blockchain</span><button type="button" class="lang" aria-label="Change language">EN</button></div>
+  </header>
+  <main class="type">
+    <p class="kicker">Picnic Recovery · acesso independente</p>
+    <h1 data-focus tabindex="-1"><span class="w"><sup aria-hidden="true">0</sup>Encontre.</span> <span class="w"><sup aria-hidden="true">1</sup>Prepare.</span> <span class="w lime"><sup aria-hidden="true">2</sup>Retire.</span></h1>
+    <p class="legend"><span><b>0</b>Diagnóstico</span><span><b>1</b>Preparar carteiras</span><span><b>2</b>Mover o dinheiro</span></p>
+    <p class="sub">Recupere seus ativos da Picnic direto na blockchain, com a sua própria carteira. Sem login e sem depender dos servidores da Picnic.</p>
+    <a class="btn btn-giant" href="#fluxo">Começar</a>
+    <p class="hint">Começa por um diagnóstico automático das 10 redes. Nenhuma assinatura é pedida.</p>
+  </main>
+  <footer class="base">
+    <ul class="nets" aria-label="Redes consultadas" data-render="nets"></ul>
+    <ul class="facts">
+      <li><span data-icon="code"></span>Código aberto</li>
+      <li><span data-icon="laptop"></span>Executável localmente</li>
+      <li><span data-icon="key"></span>Sem custódia de chaves</li>
+    </ul>
+  </footer>
+</div>
+
+<div data-view="fluxo" hidden>
+  <section class="canvas on-ink">
+    <header class="top">
+      <a class="lockup" href="#inicio" aria-label="Picnic recovery, voltar ao início"><img class="wordmark" src="../brand/picnic-wordmark.svg" alt="picnic" width="90" height="29"><span>recovery</span></a>
+      <nav aria-label="Etapas"><ol class="pills">
+        <li aria-current="step"><b>0</b>Diagnóstico</li>
+        <li><b>1</b>Preparar carteiras</li>
+        <li><b>2</b>Mover o dinheiro</li>
+      </ol></nav>
+      <div class="top-end"><a class="top-link" href="#inicio">Início</a><button type="button" class="lang" aria-label="Change language">EN</button></div>
+    </header>
+    <div class="status">
+      <div class="status-main">
+        <span class="big-tick">
+          <svg class="ic" width="26" height="26" aria-hidden="true"><use href="#i-check"/></svg>
+        </span>
+        <div>
+          <p class="kicker">Passo 0 · Diagnóstico concluído</p>
+          <h1 data-focus tabindex="-1">Tudo verificado.</h1>
+          <p>As 10 redes foram consultadas para a sua Picnic Safe. Nenhuma assinatura foi pedida: seu dinheiro continua nas suas mãos.</p>
+        </div>
+      </div>
+      <dl class="nums">
+        <div><dd>34</dd><dt>ativos encontrados<br>em 8 redes</dt></div>
+        <div><dd>10<small>/10</small></dd><dt>redes<br>consultadas</dt></div>
+        <div><dd>0</dd><dt>pendências<br>para conferir</dt></div>
+      </dl>
+    </div>
+    <ul class="tiles" aria-label="Situação por rede" data-render="tiles"></ul>
+    <div class="relay">
+      <div class="accts" aria-label="Contas vinculadas">
+        <span class="acct"><span data-icon="wallet"></span><span><strong>Carteira que assina</strong><span class="mono">0xd80b…eA62</span></span></span>
+        <span class="link-word">proprietária verificada da</span>
+        <span class="acct"><span data-icon="safe"></span><span><strong>Picnic Safe</strong><span class="mono">0xF7d9…159c</span></span></span>
+        <span class="acct"><span data-icon="card"></span><span><strong>Cartão</strong>1 Safe · Gnosis</span></span>
+        <button type="button" class="btn-text">Trocar carteira</button>
+      </div>
+      <div class="go">
+        <p><span>A seguir · Passo 1</span>Preparar carteiras:<br>destino e saldo para as taxas.</p>
+        <button type="button" class="btn">Próximo passo</button>
+      </div>
+    </div>
+  </section>
+  <main class="inventory">
+    <div class="inv-head"><h2>Ativos por rede</h2><p>34 ativos · saldos lidos direto na blockchain</p></div>
+    <div class="cards" data-render="cards"></div>
+    <p class="empty-note"><span class="tick"><svg class="ic" width="11" height="11" aria-hidden="true"><use href="#i-check"/></svg></span>BNB Chain e Robinhood foram consultadas e não têm saldo nos contratos do catálogo.</p>
+    <div class="utils" data-render="utils"></div>
+  </main>
+  <footer class="foot mock-tag">Mockup 02 · dados ilustrativos · nenhuma carteira conectada</footer>
+</div>
+
+<script src="assets/shared.js"></script>
+<script>
+PR.fill("[data-icon]", el => PR.icon(el.dataset.icon, el.closest(".acct") ? 20 : 15));
+PR.fill('[data-render="nets"]', PR.NETWORKS.map(n => `<li>${PR.chain(n.id, 16)}${n.name}</li>`).join(""));
+PR.fill('[data-render="tiles"]', PR.NETWORKS.map(n => `<li class="${n.assets.length ? "" : "zero"}">
+  <span class="t-head">${PR.chain(n.id, 22)}<span class="tick" title="Consultada">${PR.icon("check", 10)}<span class="sr-only">Consultada</span></span></span>
+  <span class="t-name">${n.name}</span>
+  <span class="t-n">${n.assets.length ? `${n.assets.length}<small>${n.assets.length === 1 ? "ativo" : "ativos"}</small>` : "sem saldo"}</span></li>`).join(""));
+PR.fill('[data-render="cards"]', PR.byCount().filter(n => n.assets.length).map(n => `<details class="ncard" open>
+  <summary>${PR.chain(n.id, 22)}${n.name}<span class="n">${PR.count(n.assets.length)}</span>${PR.icon("chev", 16)}</summary>
+  <ul>${n.assets.map(a => `<li class="tok"><span class="tok-name"><strong>${a.sym}</strong>${PR.badge(a.kind)}<small>${a.name}</small></span><span class="tok-bal">${a.bal}</span></li>`).join("")}</ul>
+  ${n.id === 100 ? PR.cardForm() : ""}</details>`).join(""));
+PR.fill('[data-render="utils"]', PR.coverage() + PR.advanced());
+</script>
+</body>
+</html>

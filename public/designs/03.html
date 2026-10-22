@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mockup 03 · Boas-vindas de app</title>
+<link rel="icon" href="../favicon-32x32.png">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+body{background:#E9ECE5}
+.btn{border-radius:12px}
+
+/* Landing: an app welcome window */
+.welcome{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:36px 32px 18px}
+.window{width:min(960px,100%);display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);background:var(--white);border-radius:24px;overflow:hidden;box-shadow:0 1px 2px rgba(33,29,26,.06),0 24px 60px -30px rgba(33,29,26,.35)}
+.pane-main{padding:38px 44px 32px}
+.app-icon{display:inline-flex;align-items:baseline;gap:7px;padding:15px 16px 13px;border-radius:16px;background:var(--ink)}
+.app-icon .wordmark{width:72px}
+.app-icon span{font-size:12px;font-weight:650;color:var(--lime)}
+.pane-main h1{font-size:28px;line-height:1.2;letter-spacing:-.7px;font-weight:700;margin:22px 0 8px}
+.pane-main>p{font-size:15px;line-height:1.55;color:var(--muted)}
+.promises{margin:22px 0 26px;display:grid;gap:14px}
+.promises li{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:start;font-size:13px;line-height:1.45;color:var(--muted)}
+.promises .pi{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:var(--soft);color:var(--ink)}
+.promises strong{display:block;font-size:14px;color:var(--ink);font-weight:650}
+.btn-block{display:flex;width:100%;padding:15px;font-size:16px}
+.fine{margin-top:14px;font-size:12px;color:var(--muted-2);text-align:center}
+.pane-side{background:var(--soft-2);border-left:1px solid var(--line-2);padding:34px 34px 28px;display:flex;flex-direction:column;gap:26px}
+.side-label{font-size:11px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.path li{position:relative;display:grid;grid-template-columns:28px 1fr;gap:12px;padding-bottom:16px;font-size:13px;color:var(--muted)}
+.path li:not(:last-child)::after{content:"";position:absolute;left:13.5px;top:30px;bottom:2px;width:1px;background:var(--line)}
+.path b{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--white);font-size:12px;color:var(--ink)}
+.path li:first-child b{background:var(--lime);border-color:var(--lime-3)}
+.path strong{display:block;font-size:14px;color:var(--ink);font-weight:650;line-height:1.3;margin-top:4px}
+.path em{font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#4E5A12;background:var(--lime-wash);padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:1px}
+.netgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px 14px}
+.netgrid li{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.below{margin-top:16px;display:flex;gap:16px;align-items:center;color:var(--muted)}
+.lang{background:none;border:0;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;padding:4px}
+
+/* Flow: single-column checklist */
+.appbar{display:flex;align-items:center;gap:16px;height:56px;padding:0 28px;background:var(--ink);color:var(--on-ink)}
+.appbar .lockup .wordmark{width:76px}
+.appbar-end{margin-left:auto;display:flex;gap:16px;align-items:center}
+.appbar-end a{font-size:13px;color:var(--on-ink-muted);text-decoration:none}
+.appbar-end a:hover{color:var(--on-ink);text-decoration:underline}
+.appbar .lang{color:var(--on-ink)}
+.col{width:min(700px,100%);margin:0 auto;padding:22px 24px 28px}
+.progress{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:24px}
+.progress li{font-size:12px;color:var(--muted);line-height:1.35}
+.progress li::before{content:"";display:block;height:4px;border-radius:4px;background:#D3D7CF;margin-bottom:8px}
+.progress li[aria-current]::before{background:var(--ink)}
+.progress li[aria-current]{color:var(--ink);font-weight:650}
+.progress b{font-family:var(--mono);font-weight:600;margin-right:4px}
+.progress small{display:block;font-weight:400;color:var(--muted)}
+.col h1{font-size:28px;letter-spacing:-.7px;line-height:1.2;font-weight:700}
+.col-lede{font-size:14px;color:var(--muted);margin:6px 0 18px}
+.checklist{background:var(--white);border-radius:16px;border:1px solid var(--line-2);padding:4px 18px}
+.checklist>li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line-2);font-size:14px}
+.checklist>li:last-child{border-bottom:0}
+.checklist .tick{width:22px;height:22px}
+.checklist strong{font-weight:600}
+.checklist small{display:block;font-size:12px;color:var(--muted)}
+.meta{display:flex;align-items:center;gap:10px;font-size:13px;color:#404040;justify-content:flex-end}
+.meta .btn-text{font-size:12px;color:var(--muted)}
+.meta .marks{display:flex;gap:3px}
+.sub-util{grid-column:2/4}
+.sub-util summary{font-size:12.5px;font-weight:600;color:#404040}
+.sub-util details[open]{padding:12px 14px;background:var(--soft-2);border-radius:10px}
+.next{margin-top:14px;display:grid;gap:8px}
+.next .btn{width:100%;padding:15px;font-size:16px;justify-content:space-between}
+.next .btn span{font-weight:500;font-size:13px;opacity:.75}
+.next p{font-size:12.5px;color:var(--muted);text-align:center}
+.assets{margin-top:22px;background:var(--white);border-radius:16px;border:1px solid var(--line-2)}
+.assets>summary{list-style:none;display:flex;justify-content:space-between;align-items:center;padding:14px 18px;font-weight:650;font-size:14px}
+.assets>summary::-webkit-details-marker{display:none}
+.assets>summary .ic{color:var(--muted);transition:transform .15s}
+.assets[open]>summary .ic{transform:rotate(180deg)}
+.group{padding:0 18px 6px}
+.group h3{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);padding:12px 0 4px}
+.group h3 span{margin-left:auto;font-weight:500;letter-spacing:0;text-transform:none}
+.group li{padding:7px 0;border-bottom:1px solid var(--line-2);font-size:13px}
+.group li:last-child{border-bottom:0}
+.zero{padding:12px 18px 16px;font-size:12.5px;color:var(--muted)}
+.utils{margin-top:12px;display:grid;gap:4px}
+.utils details{padding:12px 4px;border-bottom:1px solid #D3D7CF;font-size:13px}
+.utils summary{font-weight:600}
+.utils p{font-size:12.5px;color:var(--muted);margin-top:8px}
+.foot{text-align:center;padding:10px 0 26px;color:var(--muted)}
+
+@media (max-width:720px){
+  body{background:var(--white)}
+  .welcome{padding:0;justify-content:flex-start}
+  .window{grid-template-columns:1fr;border-radius:0;box-shadow:none}
+  .pane-main{padding:28px 22px 24px}
+  .pane-main h1{font-size:25px}
+  .pane-side{border-left:0;border-top:1px solid var(--line-2);padding:24px 22px}
+  .below{padding:0 22px 24px}
+  .appbar{padding:0 16px}
+  .col{padding:18px 16px 24px}
+  .progress small{display:none}
+  .checklist{padding:2px 14px}
+  .checklist>li{grid-template-columns:22px minmax(0,1fr);row-gap:4px}
+  .meta{grid-column:2;justify-content:flex-start}
+  .sub-util{grid-column:1/3}
+}
+</style>
+</head>
+<body data-title-inicio="Mockup 03 · Boas-vindas de app — Início" data-title-fluxo="Mockup 03 · Boas-vindas de app — Diagnóstico">
+
+<div data-view="inicio" class="welcome">
+  <div class="window">
+    <section class="pane-main">
+      <span class="app-icon"><img class="wordmark" src="../brand/picnic-wordmark.svg" alt="picnic" width="90" height="29"><span>recovery</span></span>
+      <h1 data-focus tabindex="-1">Bem-vindo ao Picnic Recovery</h1>
+      <p>Acesse e retire seus ativos da Picnic usando apenas a sua carteira.</p>
+      <ul class="promises">
+        <li><span class="pi" data-icon="user-off"></span><span><strong>Sem login Picnic</strong>Basta a carteira que assina a sua conta.</span></li>
+        <li><span class="pi" data-icon="search"></span><span><strong>Nada é assinado no diagnóstico</strong>Ele só lê a blockchain, em 10 redes.</span></li>
+        <li><span class="pi" data-icon="key"></span><span><strong>Suas chaves ficam com você</strong>Cada movimentação é revisada e assinada na sua carteira.</span></li>
+      </ul>
+      <a class="btn btn-block" href="#fluxo">Começar</a>
+      <p class="fine">Código aberto · Executável localmente · Sem rastreamento</p>
+    </section>
+    <aside class="pane-side" aria-label="O que vem a seguir">
+      <div>
+        <p class="side-label">Seu caminho</p>
+        <ol class="path">
+          <li><b>0</b><span><strong>Diagnóstico <em>Começa aqui</em></strong>Todas as redes, automaticamente</span></li>
+          <li><b>1</b><span><strong>Preparar carteiras</strong>Destino e saldo para taxas</span></li>
+          <li><b>2</b><span><strong>Mover o dinheiro</strong>Saldos e investimentos</span></li>
+        </ol>
+      </div>
+      <div>
+        <p class="side-label">Redes consultadas</p>
+        <ul class="netgrid" data-render="netgrid"></ul>
+      </div>
+    </aside>
+  </div>
+  <p class="below"><button type="button" class="lang" aria-label="Change language">EN</button><span class="mock-tag">Mockup 03 · dados ilustrativos</span></p>
+</div>
+
+<div data-view="fluxo" hidden>
+  <header class="appbar on-ink">
+    <a class="lockup" href="#inicio" aria-label="Picnic recovery, voltar ao início"><img class="wordmark" src="../brand/picnic-wordmark.svg" alt="picnic" width="90" height="29"><span>recovery</span></a>
+    <div class="appbar-end"><a href="#inicio">Início</a><button type="button" class="lang" aria-label="Change language">EN</button></div>
+  </header>
+  <main class="col">
+    <nav aria-label="Etapas"><ol class="progress">
+      <li aria-current="step"><b>0</b>Diagnóstico<small>Concluído</small></li>
+      <li><b>1</b>Preparar carteiras<small>A seguir</small></li>
+      <li><b>2</b>Mover o dinheiro<small>Saldos e investimentos</small></li>
+    </ol></nav>
+    <h1 data-focus tabindex="-1">Seu diagnóstico está pronto</h1>
+    <p class="col-lede">Nada foi assinado. Confira o resumo e siga para o próximo passo.</p>
+    <ul class="checklist">
+      <li><span class="tick" data-tick></span><span><strong>Carteira conectada</strong><small>Signer · autoriza as operações das suas contas</small></span><span class="meta"><span class="mono">0xd80b…eA62</span><button type="button" class="btn-text">Trocar</button></span></li>
+      <li><span class="tick" data-tick></span><span><strong>Picnic Safe identificada</strong><small>A carteira acima é uma proprietária verificada</small></span><span class="meta mono">0xF7d9…159c</span></li>
+      <li><span class="tick" data-tick></span><span><strong>10 de 10 redes consultadas</strong><small>1.669 tokens verificados</small></span><span class="meta"><span class="marks" data-render="marks"></span></span></li>
+      <li><span class="tick" data-tick></span><span><strong>34 ativos encontrados em 8 redes</strong><small>Inclui 1 Safe de cartão na Gnosis</small></span><span class="meta">34</span>
+        <div class="sub-util" data-render="cardform"></div></li>
+      <li><span class="tick" data-tick></span><span><strong>Nenhuma pendência</strong><small>Nas verificações realizadas</small></span><span class="meta">0</span></li>
+    </ul>
+    <div class="next">
+      <button type="button" class="btn">Próximo passo: Preparar carteiras <span>Passo 1</span></button>
+      <p>A seguir: preparar o destino e o saldo para as taxas.</p>
+    </div>
+    <details class="assets" open>
+      <summary>Ver os 34 ativos<svg class="ic" width="16" height="16" aria-hidden="true"><use href="#i-chev"/></svg></summary>
+      <div data-render="groups"></div>
+      <p class="zero">BNB Chain e Robinhood: consultadas, sem saldo.</p>
+    </details>
+    <div class="utils" data-render="utils"></div>
+  </main>
+  <footer class="foot mock-tag">Mockup 03 · dados ilustrativos · nenhuma carteira conectada</footer>
+</div>
+
+<script src="assets/shared.js"></script>
+<script>
+PR.fill("[data-icon]", el => PR.icon(el.dataset.icon, 18));
+PR.fill("[data-tick]", PR.icon("check", 12) + '<span class="sr-only">Concluído</span>');
+PR.fill('[data-render="netgrid"]', PR.NETWORKS.map(n => `<li>${PR.chain(n.id, 18)}${n.name}</li>`).join(""));
+PR.fill('[data-render="marks"]', PR.NETWORKS.map(n => PR.chain(n.id, 15)).join(""));
+PR.fill('[data-render="cardform"]', PR.cardForm("sub-util-inner"));
+PR.fill('[data-render="groups"]', PR.NETWORKS.filter(n => n.assets.length).map(n => `<section class="group">
+  <h3>${PR.chain(n.id, 16)}${n.name}<span>${PR.count(n.assets.length)}</span></h3>
+  <ul>${n.assets.map(a => `<li class="tok"><span class="tok-name"><strong>${a.sym}</strong>${PR.badge(a.kind)}<small>${a.name}</small></span><span class="tok-bal">${a.bal}</span></li>`).join("")}</ul></section>`).join(""));
+PR.fill('[data-render="utils"]', PR.coverage() + PR.advanced());
+</script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mockup 01 · Editorial</title>
+<link rel="icon" href="../favicon-32x32.png">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+body{background:var(--paper)}
+.bar{display:flex;align-items:center;gap:28px;height:56px;padding:0 48px;background:var(--ink);color:var(--on-ink)}
+.bar-end{margin-left:auto;display:flex;align-items:center;gap:18px}
+.chip{font-size:11px;border:1px solid var(--lime);color:var(--lime);border-radius:99px;padding:4px 10px;white-space:nowrap}
+.lang{background:none;border:0;color:var(--on-ink);font-size:13px;font-weight:600;padding:6px;cursor:pointer}
+.bar-link{font-size:13px;color:var(--on-ink-muted);text-decoration:none}
+.bar-link:hover{color:var(--on-ink);text-decoration:underline}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--muted)}
+.eyebrow::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--lime);box-shadow:inset 0 0 0 1px var(--lime-4);margin-right:9px;vertical-align:0}
+
+/* Landing */
+.land{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:64px;padding:52px 48px 40px;max-width:1280px;margin:auto;align-items:start}
+.land h1{font:500 60px/1.04 var(--serif);letter-spacing:-1.6px;margin:18px 0 22px}
+.land h1 em{font-style:italic;background:linear-gradient(transparent 62%,var(--lime) 62%,var(--lime) 90%,transparent 90%)}
+.lede{font-size:17px;line-height:1.65;color:#45493F;max-width:560px}
+.cta-row{display:flex;align-items:center;gap:22px;margin-top:30px}
+.btn-xl{padding:16px 40px;font-size:17px}
+.cta-row p{font-size:12.5px;line-height:1.5;color:var(--muted)}
+.sheet{background:var(--white);border:1px solid var(--line);border-radius:4px;padding:22px 26px 20px;box-shadow:0 1px 0 var(--line-2),0 18px 40px -28px rgba(33,29,26,.35)}
+.sheet-head{display:flex;justify-content:space-between;font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);padding-bottom:12px;border-bottom:2px solid var(--ink)}
+.sheet ol li{display:grid;grid-template-columns:44px 1fr;gap:6px;padding:16px 0;border-bottom:1px solid var(--line-2)}
+.sheet .n{font:500 30px/1 var(--serif);color:var(--ink)}
+.sheet h2{font-size:15px;font-weight:650;margin-bottom:4px}
+.sheet li p{font-size:13px;line-height:1.55;color:var(--muted)}
+.sheet-nets{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:14px;font-size:12px;font-weight:600}
+.netmarks{display:flex;gap:4px}
+.facts{max-width:1280px;margin:auto;padding:18px 48px 28px;display:flex;align-items:center;gap:26px;flex-wrap:wrap;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.facts li{display:inline-flex;align-items:center;gap:7px}
+.facts ul{display:flex;gap:22px;flex-wrap:wrap}
+.signoff{margin-left:auto;font:italic 500 16px var(--serif);color:var(--ink)}
+
+/* Flow */
+.steps ol{display:flex;gap:4px}
+.steps li{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--on-ink-muted);padding:17px 12px 15px;border-bottom:2px solid transparent;white-space:nowrap}
+.steps li b{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1px solid var(--ink-line);font-size:11px;font-weight:600}
+.steps li[aria-current]{color:var(--on-ink);font-weight:600;border-bottom-color:var(--lime)}
+.steps li[aria-current] b{background:var(--lime);border-color:var(--lime);color:var(--ink)}
+.desk{max-width:1280px;margin:auto;padding:28px 48px 24px}
+.desk-head{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(320px,1fr);gap:48px;align-items:start}
+.desk h1{font:500 38px/1.14 var(--serif);letter-spacing:-.8px;margin:12px 0 12px}
+.desk h1 span{color:var(--muted)}
+.desk-lede{font-size:14.5px;line-height:1.6;color:#45493F;max-width:600px}
+.figures{display:grid;grid-template-columns:repeat(4,auto);justify-content:start;gap:0;margin-top:22px;border-top:2px solid var(--ink)}
+.figures div{padding:12px 28px 0 0;margin-right:28px;border-right:1px solid var(--line)}
+.figures div:last-child{border-right:0}
+.figures dt{font-size:10.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:var(--muted)}
+.figures dd{font:500 30px/1.15 var(--serif);font-variant-numeric:tabular-nums;margin-top:4px}
+.figures dd small{font:400 12px var(--font);color:var(--muted);margin-left:6px}
+.desk-side{background:var(--white);border:1px solid var(--line);border-radius:4px;padding:18px 20px}
+.side-title{font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.accounts div{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line-2);font-size:13px}
+.accounts dt{display:flex;align-items:center;gap:8px;font-weight:600}
+.accounts dt .ic{color:var(--muted)}
+.accounts dd{font-size:12.5px;color:#404040}
+.badge.ok{background:#EEF9F3;border-color:#B7E4CD;color:var(--ok)}
+.desk-side .btn-text{font-size:12px;color:var(--muted);margin-top:6px}
+.next{margin-top:14px;padding:14px 16px;background:var(--lime-wash);border:1px solid #DCEB97;border-radius:4px;display:flex;align-items:center;justify-content:space-between;gap:14px}
+.next p{font-size:12.5px;line-height:1.45;color:#404040}
+.next span{display:block;font-size:10.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:#4E5A12}
+.next strong{display:block;font:500 19px/1.3 var(--serif);color:var(--ink)}
+.next .btn{white-space:nowrap;border-radius:4px;padding:11px 18px;font-size:14px;background:var(--ink);color:var(--lime);border-color:var(--ink)}
+.next .btn:hover{background:var(--ink-3)}
+
+.ledger{margin-top:34px}
+.ledger-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:2px solid var(--ink)}
+.ledger-head h2{font:500 22px var(--serif)}
+.ledger-head p{font-size:12px;color:var(--muted)}
+.ledger-cols,.row>summary,.row.empty{display:grid;grid-template-columns:200px 150px 150px 80px minmax(0,1fr) 20px;gap:16px;align-items:center}
+.ledger-cols{padding:9px 0;font-size:10.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
+.row{border-bottom:1px solid var(--line)}
+.row>summary,.row.empty{list-style:none;padding:11px 0;font-size:13.5px}
+.row>summary::-webkit-details-marker{display:none}
+.row>summary:hover{background:rgba(255,255,255,.6)}
+.r-net{display:flex;align-items:center;gap:10px;font-weight:600}
+.r-st{display:flex;align-items:center;gap:7px;color:#404040;font-size:12.5px}
+.r-st .tick{width:16px;height:16px}
+.r-top{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .ic{color:var(--muted);transition:transform .15s}
+.row[open] .ic{transform:rotate(180deg)}
+.row.empty{color:var(--muted)}
+.row-body{padding:2px 0 18px 30px}
+.toks{columns:2;column-gap:40px}
+.toks li{break-inside:avoid;padding:8px 0;border-bottom:1px dotted var(--line);font-size:13px}
+.row-body .card-form{margin-top:12px;font-size:13px}
+.row-body .card-form summary{font-weight:600}
+.notes{display:flex;gap:36px;flex-wrap:wrap;margin-top:22px;font-size:13px}
+.notes details{flex:1;min-width:260px}
+.notes summary{font-weight:600}
+.notes p{font-size:12.5px;color:var(--muted);margin-top:8px}
+.desk-foot{max-width:1280px;margin:auto;padding:18px 48px 28px;display:flex;justify-content:space-between;gap:16px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
+.desk-foot .signoff{margin:0}
+
+@media (max-width:720px){
+  .bar{padding:0 18px;gap:12px}
+  .bar .chip{display:none}
+  .land{grid-template-columns:1fr;gap:28px;padding:30px 18px 24px}
+  .land h1{font-size:40px;letter-spacing:-1px;margin:14px 0 16px}
+  .lede{font-size:15px}
+  .cta-row{flex-direction:column;align-items:stretch;gap:12px;margin-top:22px}
+  .cta-row p br{display:none}
+  .facts{padding:16px 18px 24px;gap:14px}
+  .facts ul{gap:10px 16px}
+  .signoff{margin-left:0}
+  [data-view="fluxo"] .bar{flex-wrap:wrap;height:auto;padding:12px 18px 0}
+  .steps{order:3;width:100%;overflow-x:auto;margin:0 -6px}
+  .steps li{padding:12px 6px 10px;font-size:12px}
+  .desk{padding:22px 18px}
+  .desk-head{grid-template-columns:1fr;gap:22px}
+  .desk h1{font-size:30px}
+  .figures{grid-template-columns:1fr 1fr}
+  .figures div{border-right:0;margin-right:0;padding-right:0}
+  .figures dd{font-size:26px}
+  .next{flex-direction:column;align-items:stretch}
+  .ledger-cols{display:none}
+  .row>summary,.row.empty{grid-template-columns:1fr auto 20px;gap:8px}
+  .r-tok,.r-top{display:none}
+  .r-st{grid-column:1;grid-row:2;margin-top:-4px;margin-left:30px}
+  .r-n{grid-column:2;grid-row:1}
+  .row-body{padding-left:0}
+  .toks{columns:1}
+  .desk-foot{flex-direction:column;padding:16px 18px 24px}
+}
+</style>
+</head>
+<body data-title-inicio="Mockup 01 · Editorial — Início" data-title-fluxo="Mockup 01 · Editorial — Diagnóstico">
+
+<div data-view="inicio">
+  <header class="bar on-ink">
+    <a class="lockup" href="#inicio"><img class="wordmark" src="../brand/picnic-wordmark.svg" alt="picnic" width="90" height="29"><span>recovery</span></a>
+    <div class="bar-end"><span class="chip">Direto na blockchain</span><button type="button" class="lang" aria-label="Change language">EN</button></div>
+  </header>
+  <main class="land">
+    <section>
+      <p class="eyebrow">Seu acesso independente</p>
+      <h1 data-focus tabindex="-1">Recupere seus ativos <em>sem depender</em> dos servidores da Picnic.</h1>
+      <p class="lede">Uma ferramenta de código aberto que encontra o que é seu em 10 redes e ajuda você a mover tudo para uma carteira que você controla. Suas chaves ficam na sua carteira.</p>
+      <div class="cta-row">
+        <a class="btn btn-xl" href="#fluxo">Começar</a>
+        <p>O diagnóstico só lê a blockchain.<br>Nenhuma assinatura é pedida nesta etapa.</p>
+      </div>
+    </section>
+    <aside class="sheet" aria-label="Como funciona">
+      <p class="sheet-head"><span>Como funciona</span><span>3 etapas</span></p>
+      <ol>
+        <li><span class="n">0</span><div><h2>Diagnóstico</h2><p>Todas as redes, automaticamente. Conecte a carteira que assina: a Picnic Safe é identificada e cada rede é consultada.</p></div></li>
+        <li><span class="n">1</span><div><h2>Preparar carteiras</h2><p>Destino e saldo para taxas. Você escolhe para onde os ativos vão.</p></div></li>
+        <li><span class="n">2</span><div><h2>Mover o dinheiro</h2><p>Saldos e investimentos. Cada operação é simulada antes do envio e assinada na sua carteira.</p></div></li>
+      </ol>
+      <div class="sheet-nets"><span>10 redes consultadas</span><span class="netmarks" data-render="netmarks"></span></div>
+    </aside>
+  </main>
+  <footer class="facts">
+    <ul>
+      <li><span data-icon="user-off"></span>Sem login Picnic</li>
+      <li><span data-icon="code"></span>Código aberto</li>
+      <li><span data-icon="laptop"></span>Executável localmente</li>
+      <li><span data-icon="eye-off"></span>Sem rastreamento</li>
+      <li><span data-icon="key"></span>Sem custódia de chaves</li>
+    </ul>
+    <span class="signoff">Seu dinheiro. Nas suas mãos.</span>
+  </footer>
+</div>
+
+<div data-view="fluxo" hidden>
+  <header class="bar on-ink">
+    <a class="lockup" href="#inicio" aria-label="Picnic recovery, voltar ao início"><img class="wordmark" src="../brand/picnic-wordmark.svg" alt="picnic" width="90" height="29"><span>recovery</span></a>
+    <nav class="steps" aria-label="Etapas"><ol>
+      <li aria-current="step"><b>0</b>Diagnóstico</li>
+      <li><b>1</b>Preparar carteiras</li>
+      <li><b>2</b>Mover o dinheiro</li>
+    </ol></nav>
+    <div class="bar-end"><a class="bar-link" href="#inicio">Início</a><button type="button" class="lang" aria-label="Change language">EN</button></div>
+  </header>
+  <main class="desk">
+    <section class="desk-head">
+      <div>
+        <p class="eyebrow">Passo 0 · Diagnóstico concluído</p>
+        <h1 data-focus tabindex="-1">34 ativos em 8 redes. <span>Nenhuma pendência.</span></h1>
+        <p class="desk-lede">As 10 redes foram consultadas para a sua Picnic Safe e o cartão vinculado, direto na blockchain. Nenhuma assinatura foi pedida.</p>
+        <dl class="figures">
+          <div><dt>Ativos encontrados</dt><dd>34<small>em 8 redes</small></dd></div>
+          <div><dt>Redes consultadas</dt><dd>10<small>/ 10</small></dd></div>
+          <div><dt>Pendências</dt><dd>0<small>para conferir</small></dd></div>
+          <div><dt>Tokens verificados</dt><dd data-render="checked"></dd></div>
+        </dl>
+      </div>
+      <aside class="desk-side" aria-label="Contas e próximo passo">
+        <h2 class="side-title">Contas vinculadas</h2>
+        <dl class="accounts">
+          <div><dt><span data-icon="wallet"></span>Carteira que assina <span class="badge">Signer</span></dt><dd class="mono">0xd80b…eA62</dd></div>
+          <div><dt><span data-icon="safe"></span>Picnic Safe <span class="badge ok">Identificada</span></dt><dd class="mono">0xF7d9…159c</dd></div>
+          <div><dt><span data-icon="card"></span>Safe do cartão</dt><dd>1 Safe · Gnosis</dd></div>
+        </dl>
+        <button type="button" class="btn-text">Trocar carteira</button>
+        <div class="next">
+          <p><span>A seguir · Passo 1</span><strong>Preparar carteiras</strong>Escolha o destino e garanta saldo para as taxas.</p>
+          <button type="button" class="btn">Próximo passo</button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="ledger" aria-labelledby="ledger-title">
+      <div class="ledger-head"><h2 id="ledger-title">Livro-razão por rede</h2><p>Abra uma rede para ver cada saldo.</p></div>
+      <div class="ledger-cols" aria-hidden="true"><span>Rede</span><span>Situação</span><span>Tokens consultados</span><span>Ativos</span><span>Principais saldos</span><span></span></div>
+      <div data-render="ledger"></div>
+    </section>
+    <section class="notes" aria-label="Utilidades" data-render="notes"></section>
+  </main>
+  <footer class="desk-foot"><span class="signoff">Seu dinheiro. Nas suas mãos.</span><span class="mock-tag">Mockup 01 · dados ilustrativos · nenhuma carteira conectada</span></footer>
+</div>
+
+<script src="assets/shared.js"></script>
+<script>
+PR.fill("[data-icon]", el => PR.icon(el.dataset.icon, 16));
+PR.fill('[data-render="netmarks"]', PR.NETWORKS.map(n => PR.chain(n.id, 20)).join(""));
+PR.fill('[data-render="checked"]', PR.CHECKED);
+PR.fill('[data-render="ledger"]', PR.NETWORKS.map(n => {
+  const net = `<span class="r-net">${PR.chain(n.id, 20)}${n.name}</span>`;
+  const status = `<span class="r-st"><span class="tick">${PR.icon("check", 11)}</span>Consultada</span>`;
+  if (!n.assets.length) return `<div class="row empty">${net}${status}<span class="r-tok num">${n.checked}</span><span class="r-n num">0</span><span class="r-top">Nenhum saldo nos contratos consultados</span><span></span></div>`;
+  const top = n.assets.slice(0, 3).map(a => `${a.sym} ${a.bal}`).join(" · ");
+  const toks = n.assets.map(a => `<li class="tok"><span class="tok-name"><strong>${a.sym}</strong>${PR.badge(a.kind)}<small>${a.name}</small></span><span class="tok-bal">${a.bal}</span></li>`).join("");
+  return `<details class="row"${n.id === 100 ? " open" : ""}><summary>${net}${status}<span class="r-tok num">${n.checked}</span><span class="r-n num">${n.assets.length}</span><span class="r-top">${top}</span>${PR.icon("chev", 16)}</summary>
+    <div class="row-body"><ul class="toks">${toks}</ul>${n.id === 100 ? PR.cardForm() : ""}</div></details>`;
+}).join(""));
+PR.fill('[data-render="notes"]', PR.coverage() + PR.advanced());
+</script>
+</body>
+</html>

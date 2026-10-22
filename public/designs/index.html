@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Picnic Recovery · Estudos de design: início e diagnóstico</title>
+<link rel="icon" href="../favicon-32x32.png">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+body{background:#E7E9E3}
+.g-head{display:flex;align-items:center;gap:18px;padding:12px 28px;background:var(--ink);color:var(--on-ink)}
+.g-head h1{font-size:14px;font-weight:600;color:var(--on-ink)}
+.g-head h1 span{color:var(--on-ink-muted);font-weight:400}
+.g-note{margin-left:auto;font-size:11.5px;font-weight:600;letter-spacing:.3px;color:var(--ink);background:var(--lime);border-radius:99px;padding:4px 11px;white-space:nowrap}
+.g-main{max-width:1440px;margin:auto;padding:18px 28px 32px}
+.picker{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.pick{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;padding:11px 14px 12px;border:1px solid #CDD1C9;border-radius:10px;background:var(--white);cursor:pointer;color:var(--ink);transition:border-color .15s,background .15s}
+.pick:hover{border-color:var(--ink)}
+.pick b{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--muted)}
+.pick strong{font-size:14.5px;font-weight:650;line-height:1.25}
+.pick small{font-size:11.5px;color:var(--muted);line-height:1.35}
+.pick[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--on-ink);box-shadow:inset 0 -3px 0 var(--lime)}
+.pick[aria-pressed="true"] b{color:var(--lime)}
+.pick[aria-pressed="true"] small{color:var(--on-ink-muted)}
+.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:14px 0 12px}
+.seg{display:inline-flex;padding:3px;border-radius:10px;background:#D7DAD2}
+.seg button{border:0;background:transparent;border-radius:7px;padding:7px 14px;font-size:13px;font-weight:600;color:#404040;cursor:pointer}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--white);color:var(--ink);box-shadow:0 1px 2px rgba(33,29,26,.15)}
+.seg button small{font-weight:400;color:var(--muted);margin-left:5px;font-variant-numeric:tabular-nums}
+.seg-label{font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);margin-right:2px}
+.group{display:inline-flex;align-items:center;gap:8px}
+.open{margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--ink);text-decoration:none;padding:8px 14px;border:1px solid var(--ink);border-radius:8px;background:var(--white)}
+.open:hover{background:var(--soft)}
+.about{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr);gap:18px;background:var(--white);border:1px solid #CDD1C9;border-radius:12px;padding:14px 18px;margin-bottom:14px}
+.about h2{font-size:17px;letter-spacing:-.3px}
+.about h2 b{font-family:var(--mono);font-weight:600;color:var(--muted);margin-right:6px;font-size:14px}
+.about p{font-size:13px;line-height:1.5;color:#404040;margin-top:4px}
+.about h3{font-size:10.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)}
+.about .cur{background:var(--lime-wash);border-radius:4px;padding:0 5px;color:#3D4A05}
+.stage{position:relative}
+.frame-box{margin:0 auto;border-radius:10px;overflow:hidden;background:var(--white);box-shadow:0 1px 3px rgba(33,29,26,.12),0 24px 50px -30px rgba(33,29,26,.45)}
+.frame-box iframe{display:block;border:0;transform-origin:0 0;background:var(--white)}
+.meta{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+.meta kbd{font-family:var(--mono);font-size:11px;background:var(--white);border:1px solid #CDD1C9;border-bottom-width:2px;border-radius:4px;padding:0 5px}
+@media (max-width:900px){
+  .g-main{padding:14px 14px 28px}
+  .g-head{padding:12px 14px;flex-wrap:wrap}
+  .g-note{margin-left:0}
+  .picker{grid-template-columns:repeat(5,minmax(132px,1fr));overflow-x:auto;padding-bottom:4px}
+  .pick small{display:none}
+  .about{grid-template-columns:1fr}
+  .open{margin-left:0}
+}
+</style>
+</head>
+<body>
+<header class="g-head on-ink">
+  <span class="lockup"><img class="wordmark" src="../brand/picnic-wordmark.svg" alt="picnic" width="90" height="29"><span>recovery</span></span>
+  <h1>Estudos de design · <span>tela inicial (landing) e diagnóstico (fluxo)</span></h1>
+  <span class="g-note">Estudos visuais · dados ilustrativos</span>
+</header>
+
+<main class="g-main">
+  <div class="picker" role="group" aria-label="Conceito" id="picker"></div>
+
+  <div class="bar">
+    <div class="group"><span class="seg-label" id="view-label">Tela</span>
+      <div class="seg" role="group" aria-labelledby="view-label">
+        <button type="button" data-view-btn="inicio" aria-pressed="true">Landing</button>
+        <button type="button" data-view-btn="fluxo" aria-pressed="false">Fluxo</button>
+      </div>
+    </div>
+    <div class="group"><span class="seg-label" id="vp-label">Viewport</span>
+      <div class="seg" role="group" aria-labelledby="vp-label">
+        <button type="button" data-vp-btn="desktop" aria-pressed="true">Desktop<small>1280×680</small></button>
+        <button type="button" data-vp-btn="mobile" aria-pressed="false">Mobile<small>390×844</small></button>
+      </div>
+    </div>
+    <a class="open" id="open" href="01.html#inicio" target="_blank" rel="noopener">Abrir em tamanho real</a>
+  </div>
+
+  <section class="about" aria-live="polite" id="about"></section>
+
+  <div class="stage" id="stage">
+    <div class="frame-box" id="box"><iframe id="frame" src="01.html#inicio" title="Mockup 01, landing, desktop 1280 por 680"></iframe></div>
+  </div>
+  <p class="meta"><span id="scale"></span><span>Atalhos: <kbd>1</kbd>–<kbd>5</kbd> conceito · <kbd>L</kbd> landing · <kbd>F</kbd> fluxo · <kbd>D</kbd> desktop · <kbd>M</kbd> mobile. Nos mockups, “Começar” abre o fluxo e “Início” volta; nada conecta carteira nem faz consultas.</span></p>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const CONCEPTS = [
+    { id: "01", name: "Editorial", tag: "Manifesto + livro-razão",
+      why: "Manchete em serifa e um índice das etapas como folha impressa; no fluxo, o status vira frase e as redes viram um livro-razão.",
+      inicio: "Duas colunas: manifesto e “Começar” à esquerda, “Como funciona” numerado à direita; a frase atual vira só uma assinatura no rodapé.",
+      fluxo: "Status escrito (“34 ativos em 8 redes. Nenhuma pendência.”), números em régua, contas e próximo passo na lateral, livro-razão expansível por rede." },
+    { id: "02", name: "Tipografia central", tag: "Marca expressiva, escuro",
+      why: "Três verbos grandes espelham as três etapas e um único botão lima; no fluxo, o canvas escuro continua e o status vem antes de tudo.",
+      inicio: "Canvas charcoal, “Encontre. Prepare. Retire.” centralizado com numeração 0–2, botão grande, redes no rodapé.",
+      fluxo: "“Tudo verificado” com números grandes, 10 blocos de rede, faixa de contas com o próximo passo; inventário em cartões claros abaixo." },
+    { id: "03", name: "Boas-vindas de app", tag: "Mínimo, tom de produto",
+      why: "Tom de produto, não de site: uma janela curta de boas-vindas; o fluxo é um checklist de coluna única que cabe em qualquer tela.",
+      inicio: "Janela de app com três garantias e “Começar” em largura total; ao lado, o caminho 0–1–2 e as 10 redes. Sem frase de herói.",
+      fluxo: "Barra de progresso, checklist de cinco verificações (contas, redes, ativos, pendências), botão de largura total, ativos agrupados abaixo." },
+    { id: "04", name: "História horizontal", tag: "Jornada em linha do tempo",
+      why: "As três etapas contadas lado a lado, com o que acontece e quem assina; no fluxo, a mesma jornada vira a barra de navegação sobre uma sala de controle.",
+      inicio: "Título curto com “Começar” à direita e três painéis numa linha do tempo; o diagnóstico em destaque escuro.",
+      fluxo: "Contas como pílulas no cabeçalho, barra de jornada, console com gráfico de ativos por rede, resumo em blocos e próximo passo no topo." },
+    { id: "05", name: "Portal estruturado", tag: "Calmo, institucional",
+      why: "Portal calmo: “Antes de começar” responde às dúvidas de confiança antes do botão; o fluxo é um espaço de trabalho com trilho de etapas e contas.",
+      inicio: "Trilho da marca à esquerda; quatro fatos (o que precisa, o que consultamos, o que fica com você, o que assina) e painel de início.",
+      fluxo: "Trilho lateral com etapas e contas; visão geral, pendências e próximo passo lado a lado; tabela de ativos completa abaixo." },
+  ];
+  const VIEWPORTS = { desktop: { w: 1280, h: 680, label: "desktop 1280 por 680" }, mobile: { w: 390, h: 844, label: "mobile 390 por 844" } };
+  const VIEW_NAMES = { inicio: "Landing", fluxo: "Fluxo" };
+  const state = { concept: 0, view: "inicio", vp: "desktop" };
+
+  const picker = document.getElementById("picker"), frame = document.getElementById("frame"), box = document.getElementById("box");
+  const stage = document.getElementById("stage"), about = document.getElementById("about"), open = document.getElementById("open"), scaleOut = document.getElementById("scale");
+
+  picker.innerHTML = CONCEPTS.map((c, i) => `<button type="button" class="pick" data-i="${i}" aria-pressed="false"><b>${c.id}</b><strong>${c.name}</strong><small>${c.tag}</small></button>`).join("");
+
+  function readHash() {
+    const m = /^#(0[1-5])(?:-(inicio|fluxo))?(?:-(desktop|mobile))?$/.exec(location.hash);
+    if (!m) return;
+    state.concept = Number(m[1]) - 1;
+    if (m[2]) state.view = m[2];
+    if (m[3]) state.vp = m[3];
+  }
+  function src() { return `${CONCEPTS[state.concept].id}.html#${state.view}`; }
+
+  function fit() {
+    const vp = VIEWPORTS[state.vp];
+    const s = Math.min(1, stage.clientWidth / vp.w);
+    frame.style.width = vp.w + "px";
+    frame.style.height = vp.h + "px";
+    frame.style.transform = `scale(${s})`;
+    box.style.width = Math.round(vp.w * s) + "px";
+    box.style.height = Math.round(vp.h * s) + "px";
+    scaleOut.textContent = `${vp.w}×${vp.h} · escala ${Math.round(s * 100)}%`;
+  }
+
+  function render(navigate) {
+    const c = CONCEPTS[state.concept];
+    picker.querySelectorAll(".pick").forEach((b, i) => b.setAttribute("aria-pressed", String(i === state.concept)));
+    document.querySelectorAll("[data-view-btn]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.viewBtn === state.view)));
+    document.querySelectorAll("[data-vp-btn]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.vpBtn === state.vp)));
+    about.innerHTML = `<div><h2><b>${c.id}</b>${c.name}</h2><p>${c.why}</p></div>
+      <div><h3>${state.view === "inicio" ? '<span class="cur">Landing</span>' : "Landing"}</h3><p>${c.inicio}</p></div>
+      <div><h3>${state.view === "fluxo" ? '<span class="cur">Fluxo</span>' : "Fluxo"}</h3><p>${c.fluxo}</p></div>`;
+    open.href = src();
+    open.textContent = `Abrir ${c.id} · ${VIEW_NAMES[state.view]} em tamanho real`;
+    frame.title = `Mockup ${c.id} ${c.name}, ${VIEW_NAMES[state.view].toLowerCase()}, ${VIEWPORTS[state.vp].label}`;
+    history.replaceState(null, "", `#${c.id}-${state.view}-${state.vp}`);
+    fit();
+    if (navigate) {
+      // Same page: switch the view in place through its hash; otherwise load the other concept.
+      let samePage = false;
+      try { samePage = frame.contentWindow.location.pathname.endsWith(`/${c.id}.html`); } catch (e) { samePage = false; }
+      if (samePage) { try { frame.contentWindow.location.hash = state.view; } catch (e) { frame.src = src(); } }
+      else frame.src = src();
+    }
+  }
+
+  // Keep the Landing/Fluxo control in sync when "Começar" or "Início" is used inside the preview.
+  frame.addEventListener("load", () => {
+    try {
+      frame.contentWindow.addEventListener("hashchange", () => {
+        const v = frame.contentWindow.location.hash === "#fluxo" ? "fluxo" : "inicio";
+        if (v !== state.view) { state.view = v; render(false); }
+      });
+    } catch (e) { /* file:// previews may be cross-origin; controls still work */ }
+  });
+
+  picker.addEventListener("click", e => { const b = e.target.closest(".pick"); if (b) { state.concept = Number(b.dataset.i); render(true); } });
+  document.querySelectorAll("[data-view-btn]").forEach(b => b.addEventListener("click", () => { state.view = b.dataset.viewBtn; render(true); }));
+  document.querySelectorAll("[data-vp-btn]").forEach(b => b.addEventListener("click", () => { state.vp = b.dataset.vpBtn; render(false); }));
+  document.addEventListener("keydown", e => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest("input,textarea")) return;
+    const k = e.key.toLowerCase();
+    if (k >= "1" && k <= "5") { state.concept = Number(k) - 1; render(true); }
+    else if (k === "l" || k === "f") { state.view = k === "l" ? "inicio" : "fluxo"; render(true); }
+    else if (k === "d" || k === "m") { state.vp = k === "d" ? "desktop" : "mobile"; render(false); }
+  });
+  new ResizeObserver(fit).observe(stage);
+
+  readHash();
+  frame.src = src();
+  render(false);
+})();
+</script>
+</body>
+</html>
