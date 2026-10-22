@@ -303,7 +303,7 @@ export function App() {
           {step <= 1 && connectedAccount?.status === "error" && <p className="message warning" role="alert">{t("Não foi possível verificar a conta Picnic vinculada. Confira o RPC da Gnosis em Avançado; os saldos da carteira conectada não incluem necessariamente os da Picnic.", "The linked Picnic account could not be verified. Check the Gnosis RPC under Advanced; the connected wallet's balances may not include your Picnic funds.")}</p>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}
-          {uncertain && <div className="message warning" role="alert">
+          {step === 3 && uncertain && <div className="message warning" role="alert">
             <strong>{t("Uma transação foi enviada. Confira o resultado antes de repetir.", "A transaction was submitted. Check its result before repeating.")}</strong>
             {lastHash && <><p className="mono">{lastHash}</p><button className="outline" disabled={busy} onClick={() => run(async () => {
               const record = progressRef.current.transactions.find(tx => tx.hash === lastHash);
@@ -434,7 +434,7 @@ export function App() {
               {review.kind === "safe" && snapshot && snapshot.threshold > 1n && <button className="outline" disabled={busy || uncertain} onClick={() => run(() => execute(true))}>{t("Registrar minha aprovação", "Register my approval")}</button>}
               <button className="quiet" disabled={busy} onClick={() => setReview(undefined)}>{t("Voltar", "Back")}</button></div>
           </section>}
-          {progress.transactions.length > 0 && <section className="panel compact"><h3>{t("Transações deste navegador", "Transactions from this browser")}</h3>
+          {step === 3 && progress.transactions.some(tx => tx.chainId === chainId) && <section className="panel compact"><h3>{t("Transações deste navegador", "Transactions from this browser")}</h3>
             {progress.transactions.filter(tx => tx.chainId === chainId).slice(-8).reverse().map(tx => <p className="small" key={tx.hash}><a href={`${explorer}/tx/${tx.hash}`} target="_blank" rel="noreferrer">{short(tx.hash)} ↗</a> · {tx.label}</p>)}
           </section>}
         </div>
