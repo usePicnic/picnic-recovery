@@ -31,7 +31,7 @@ export function RecoveryPreparation(props: Props) {
   const fingerprint = snapshots.map(s => `${s.chainId}:${s.block}`).join("|");
   useEffect(() => { setTracked({ account, snapshots }); }, [account, fingerprint]);
   if (!snapshots.length) return null;
-  const needsOwner = snapshots.some(s => !s.owners.some(a => wallet && same(a, wallet)) && !s.recoveries.some(r => r.pending.executeAfter));
+  const needsOwner = snapshots.some(s => s.passkey === "detected" && !s.owners.some(a => wallet && same(a, wallet)) && !s.recoveries.some(r => r.pending.executeAfter));
   return <section className="recovery-preparation" aria-labelledby="prepare-recovery-title">
     <h3 id="prepare-recovery-title">{t("Recuperar acesso", "Recover access")}</h3>
     <p>{t("Contas com passkey podem ser recuperadas usando o guardian configurado. A recuperação troca a carteira que controla a conta; seus ativos continuam nela.", "Passkey accounts can be recovered using their configured guardian. Recovery changes the wallet controlling the account; your assets stay in it.")}</p>
