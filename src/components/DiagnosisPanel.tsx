@@ -20,7 +20,6 @@ type Props = {
 export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, lang, busy, results, recovery, overrides, setRpc, rescan, retryPending, open, custom, addCustom, removeCustom, retryCustom, baskets }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const finished = results.filter(r => !["queued", "scanning"].includes(r.status)).length;
-  const retryTimeout = Math.max(0, ...results.flatMap(r => [r.retryTimeout ?? 0, ...r.linkedCards?.map(c => c.retryTimeout ?? 0) ?? []]));
   const scanning = results.length > 0 && finished < results.length;
   const loading = scanning || custom.some(item => item.status === "loading");
   const waitingToContinue = loading || !!identifying || busy;
@@ -37,14 +36,6 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
     <p className="eyebrow">{t("PASSO 0 / DIAGNÓSTICO AUTOMÁTICO", "STEP 0 / AUTOMATIC DIAGNOSIS")}</p>
     <h2>{t("Uma conta. Todas as redes.", "One account. Every network.")}</h2>
     <LinkedAccounts account={account} wallet={wallet} picnicAccount={picnicAccount} identifying={identifying} results={results} busy={busy} lang={lang} />
-    {results.length > 0 && <div className={`diagnosis-progress ${loading ? "is-loading" : ""}`}>
-      <div className="scan-status" role="status" aria-live="polite">
-        <span className={loading ? "scan-spinner" : pending.length + customErrors.length > 0 ? "scan-complete has-pending" : "scan-complete"} aria-hidden="true">{loading ? "" : pending.length + customErrors.length > 0 ? "!" : "✓"}</span>
-        <div><strong>{retryTimeout > 0 ? t("Tentando novamente as consultas pendentes…", "Retrying pending checks…") : scanning ? t("Buscando seus ativos…", "Finding your assets…") : loading ? t("Verificando tokens adicionados…", "Checking added tokens…") : pending.length + customErrors.length > 0 ? t("Consulta finalizada com pendências", "Scan finished with items needing attention") : t("Diagnóstico concluído", "Diagnosis finished")}</strong>
-          <p>{retryTimeout > 0 ? t(`Os saldos encontrados foram mantidos. Aguardando até ${retryTimeout / 1000}s por requisição nesta tentativa.`, `Found balances are preserved. Allowing up to ${retryTimeout / 1000}s per request on this attempt.`) : scanning ? t(`${finished} de ${results.length} redes consultadas. Os saldos aparecem conforme chegam.`, `${finished} of ${results.length} networks checked. Balances appear as they arrive.`)
-            : t("Confira os ativos e as pendências antes de continuar.", "Review assets and items needing attention before continuing.")}</p></div>
-      </div>
-    </div>}
     <div className="diagnosis-tabs" role="tablist" aria-label={t("Resultado do diagnóstico", "Diagnosis results")}>
       {(["assets", "pending"] as const).map((id, i) => <button key={id} type="button" role="tab" id={`diagnosis-${id}-tab`} aria-controls={`diagnosis-${id}`} aria-selected={view === id} tabIndex={view === id ? 0 : -1}
         onClick={() => setView(id)} onKeyDown={event => {
