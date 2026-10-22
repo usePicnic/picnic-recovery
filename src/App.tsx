@@ -9,6 +9,7 @@ import { formatUnits, type Address, type EIP1193Provider, type Hex } from "viem"
 import { chains, chainById } from "./catalog/chains";
 import { products } from "./catalog/products";
 import { address, parseAmount, publicClient, same } from "./core/client";
+import type { RecoveryHandoff } from "./core/discovery";
 import { inspectAccount } from "./core/inspect";
 import { assertSeparateRecipient, destinationError, knownGuardians } from "./core/destination";
 import { recoveryAction, safeAction, sendAction, transferCall, approveSafeProposal } from "./core/actions";
@@ -25,7 +26,7 @@ import { BasketContentsView } from "./components/BasketContents";
 import { useBasketContents } from "./components/useBasketContents";
 import { chainOf, commitSelection, emptySelection, forAccount, isExcluded, migrationItems, positionId, selectedIds, setSelected, transferId, type Selection, type MigrationItem } from "./components/migration";
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
-import { RecoveryPanel } from "./components/RecoveryPanel";
+import { RecoveryPreparation } from "./components/RecoveryPreparation";
 import { CardAssetForm } from "./components/CardAssetForm";
 import { ItemText } from "./components/AssetTable";
 import { useConnectedAccount } from "./components/useConnectedAccount";
@@ -54,10 +55,11 @@ export function App() {
   const [progress, setProgress] = useState(readProgress);
   const connection = useAccount();
   const walletAddress = connection.address;
-  const connectedAccount = useConnectedAccount(walletAddress, true, rpcOverrides);
+  const [recoveryHandoff, setRecoveryHandoff] = useState<RecoveryHandoff>();
+  const connectedAccount = useConnectedAccount(walletAddress, true, rpcOverrides, recoveryHandoff);
   // The read source follows the live connection, never a saved or previous wallet.
   // useConnectedAccount only exposes discovery results for this signer.
-  const account = walletAddress ? connectedAccount?.account ?? walletAddress : "";
+  const account = walletAddress && connectedAccount?.status !== "selection-required" ? connectedAccount?.account ?? walletAddress : "";
   const diagnosis = useDiagnosis(account, rpcOverrides);
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
   useEffect(() => { if (started) document.querySelector<HTMLElement>("[data-screen-heading]")?.focus({ preventScroll: true }); }, [started]);
@@ -200,7 +202,10 @@ export function App() {
     settle: (tx: TransactionRecord, status) => {
       settled(tx.hash, status);
       setReview(undefined);
-      diagnosis.rescan(tx.chainId);
+      if (/recovery/i.test(tx.label)) {
+        void inspectAccount(publicClient(chainById(tx.chainId), rpcFor(tx.chainId, rpcOverrides)), tx.account, tx.chainId)
+          .then(diagnosis.updateSnapshot).catch(() => { /* Recovery preparation retries its own access checks. */ });
+      } else diagnosis.rescan(tx.chainId);
     },
   });
   async function execute(approveOnly = false, action = review) {
@@ -290,6 +295,11 @@ export function App() {
 
         <div className="content">
           {step <= 1 ? <DiagnosisPanel account={account}
+            accountPicker={(connectedAccount?.accounts?.length ?? 0) > 1 ? <label className="field verified-account-picker"><span>{t("Contas verificadas para esta carteira", "Verified accounts for this wallet")}</span>
+              <select value={connectedAccount?.account ?? ""} disabled={busy} onChange={event => connectedAccount?.selectAccount(event.target.value as Address)}>
+                {!connectedAccount?.account && <option value="" disabled>{t("Escolha a conta para recuperar", "Choose the account to recover")}</option>}
+                {connectedAccount?.accounts.map(candidate => <option value={candidate} key={candidate}>{candidate}</option>)}
+              </select><small>{t("Só aparecem contas cujo vínculo como owner ou guardian foi confirmado na blockchain.", "Only accounts with verified on-chain owner or guardian links appear here.")}</small></label> : undefined}
             picnicAccount={connectedAccount?.status === "ready" && connectedAccount.account && !same(connectedAccount.account, walletAddress ?? "") ? connectedAccount.account : undefined}
             identifying={connectedAccount?.status === "loading"}
             wallet={walletAddress} lang={lang} busy={busy || connectedAccount?.status === "loading"} results={diagnosis.results} overrides={rpcOverrides}
@@ -297,19 +307,26 @@ export function App() {
             rescan={diagnosis.rescan} retryPending={diagnosis.retryPending} open={openDiagnosis} custom={diagnosis.customTokens} addCustom={diagnosis.addCustomToken}
             removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} baskets={baskets}
             cardForm={step === 0 ? <CardAssetForm key={account} embedded lang={lang} disabled={busy || !diagnosis.account} add={diagnosis.addCard} /> : undefined}
-            recovery={step === 1 && snapshot?.passkey === "detected" ? <RecoveryPanel snapshot={snapshot} wallet={walletAddress} lang={lang} busy={busy} owner={owner} setOwner={setOwner}
-              networkIds={diagnosis.results.filter(r => r.snapshot?.passkey === "detected").map(r => r.chainId)}
-              selectNetwork={id => { const result = diagnosis.results.find(r => r.chainId === id); if (result) openDiagnosis(result, 1); }}
-              prepare={() => goToStep(2)} review={(module, operation) => void run(async () => openReview(recoveryAction(requireSnapshot(), module, operation, operation === "approve" || operation === "start" ? owner : undefined)))} /> : undefined} /> : <section className="panel compact account-context">
+ /> : <section className="panel compact account-context">
             <div>{step === 3 && <span className="small muted">{chain.name}</span>}<p className="mono small">{snapshot?.address ?? t("Conta ainda não consultada", "Account not inspected yet")}</p>
               <p className="small muted">{t("Carteira conectada", "Connected wallet")}: <span className="mono">{walletAddress ?? t("nenhuma", "none")}</span></p></div>
             <button className="text-button" disabled={busy} onClick={() => goToStep(0)}>{t("Trocar carteira ou voltar ao diagnóstico", "Change wallet or back to diagnosis")}</button>
           </section>}
           {step > 1 && diagnosis.results.some(r => r.status === "scanning" || r.status === "queued") && <p className="small muted" role="status">{t("O diagnóstico das outras redes continua em segundo plano.", "Diagnosis of the other networks continues in the background.")}</p>}
           {step <= 1 && connectedAccount?.status === "error" && <p className="message warning" role="alert">{t("Não foi possível verificar a conta Picnic vinculada. Confira o RPC da Gnosis em Avançado; os saldos da carteira conectada não incluem necessariamente os da Picnic.", "The linked Picnic account could not be verified. Check the Gnosis RPC under Advanced; the connected wallet's balances may not include your Picnic funds.")}</p>}
+          {step <= 1 && connectedAccount?.status === "ready" && !!connectedAccount.issues?.length && <p className="note">{t("A conta exibida foi verificada, mas a busca por outras contas de recuperação ficou incompleta.", "The displayed account was verified, but the search for other recovery accounts is incomplete.")} <button className="text-button" disabled={busy} onClick={() => connectedAccount.retry()}>{t("Tentar concluir a busca", "Retry discovery")}</button></p>}
           {error && <div className="message error" role="alert">{error}</div>}
           {notice && <div className="message success" role="status">{notice}</div>}
-          {step === 2 && <PrepareMigration lang={lang} busy={busy} account={account} wallet={walletAddress} results={diagnosis.results} items={items}
+          {step === 2 && <PrepareMigration recovery={<RecoveryPreparation account={account} results={diagnosis.results} wallet={walletAddress} owner={owner} setOwner={setOwner}
+            overrides={rpcOverrides} busy={busy} blocked={uncertain} lang={lang} connect={() => goToStep(0)} run={run} onSnapshot={diagnosis.updateSnapshot}
+            perform={async (current, module, mode, proposedOwner) => {
+              if (uncertain || !walletAddress || !same(current.address, account)) throw new Error(t("Confira a conta e a transação pendente antes de continuar.", "Check the account and pending transaction before continuing."));
+              const action = { ...recoveryAction(current, module, mode, proposedOwner), expectedSender: walletAddress };
+              const reader = publicClient(chainById(current.chainId), rpcFor(current.chainId, rpcOverrides));
+              const receipt = await sendAction(reader, await provider(), action, (hash, expectation) => record({ chainId: current.chainId, account: current.address, label: action.label, hash, expectation }));
+              confirmed(receipt.transactionHash);
+              if (mode === "finalize" && action.expectedOwner) setRecoveryHandoff({ account: current.address, chainId: current.chainId, newOwner: action.expectedOwner });
+            }} />} lang={lang} busy={busy} account={account} wallet={walletAddress} results={diagnosis.results} items={items}
             selection={selection} select={(ids, value) => setSelectionState(old => setSelected(forAccount(old, account), items, ids, value))} overrides={rpcOverrides}
             destination={destination} setDestination={setDestination} rescan={diagnosis.rescan} addCustom={diagnosis.addCustomToken} retryCustom={diagnosis.retryCustomToken}
             run={run} connect={() => goToStep(0)} guardians={guardians} retryBasket={id => baskets.retry([id])} next={() => {

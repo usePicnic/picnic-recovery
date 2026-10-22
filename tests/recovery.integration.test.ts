@@ -14,6 +14,8 @@ import { isPasskeySigner, inspectPasskey } from "../src/core/passkey";
 import { inspectAccount, recoveryPeriod } from "../src/core/inspect";
 import { safeAbi, recoveryAbi, erc20Abi } from "../src/core/abi";
 import { recoveryAction, sendAction, safeAction, transferCall, approveSafeProposal } from "../src/core/actions";
+import { discoverRecoveryAccounts } from "../src/core/discovery";
+import { ReadPool } from "../src/core/reads";
 
 const setupAbi = parseAbi(["function setup(address[] owners,uint256 threshold,address to,bytes data,address fallbackHandler,address paymentToken,uint256 payment,address paymentReceiver)"]);
 const zero = "0x0000000000000000000000000000000000000000" as const;
@@ -128,6 +130,12 @@ describe("Independent recovery using deployed contract bytecode", () => {
     expect(await publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [accounts[4]] })).toBe(123_456n);
     await expect(sendAction(publicClient, provider(3), action, () => {})).rejects.toThrow(/nonce changed/);
   }, 30_000);
+  it("finds the same recovered Safe from actual guardian and indexed finalization events", async () => {
+    const pool = () => new ReadPool(foundry, [{ url: `http://127.0.0.1:${port}`, client: publicClient }], new AbortController().signal, 0);
+    expect((await discoverRecoveryAccounts(pool(), accounts[1], foundry.id)).map(value => value.toLowerCase())).toContain(safe.toLowerCase());
+    expect((await discoverRecoveryAccounts(pool(), accounts[3], foundry.id)).map(value => value.toLowerCase())).toContain(safe.toLowerCase());
+    expect((await discoverRecoveryAccounts(pool(), accounts[4], foundry.id)).map(value => value.toLowerCase())).not.toContain(safe.toLowerCase());
+  });
   it("will not execute using the former owner or wrong chain", async () => {
     const s = await inspectAccount(publicClient, safe, foundry.id);
     const action = safeAction(s, transferCall(token, accounts[4], 1n), "Test transfer");

@@ -23,7 +23,7 @@ export function diagnosisNext(results: NetworkDiagnosis[], wallet: Address | und
   // Access comes before moving funds; otherwise start with a network holding assets.
   const score = (r: NetworkDiagnosis) => (needsPasskeyRecovery(r, wallet) ? 4 : 0) + (hasAssets(r) ? 2 : 0) + (r.snapshot?.version !== "EOA" ? 1 : 0);
   const result = candidates.sort((a, b) => score(b) - score(a))[0];
-  if (result) return { result, step: (needsPasskeyRecovery(result, wallet) ? 1 : 2) as 1 | 2 };
+  if (result) return { result, step: 2 as const };
 }
 
 export function needsAttention(result: NetworkDiagnosis, wallet?: Address) {

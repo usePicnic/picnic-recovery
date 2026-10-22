@@ -12,13 +12,13 @@ import { diagnosisAction, diagnosisNext, needsAttention, withCustomHoldings } fr
 
 type Props = {
   account: string; wallet?: Address; picnicAccount?: Address; identifying?: boolean; lang: "pt" | "en"; busy: boolean;
-  results: NetworkDiagnosis[]; recovery?: ReactNode; cardForm?: ReactNode; overrides: RpcOverrides;
+  results: NetworkDiagnosis[]; accountPicker?: ReactNode; recovery?: ReactNode; cardForm?: ReactNode; overrides: RpcOverrides;
   setRpc: (id: number, value: string) => void; rescan: (id?: number) => void; retryPending: (id: number) => void;
   open: (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: TokenHolding) => void;
   custom: CustomTokenState[]; addCustom: Parameters<typeof AssetTable>[0]["addCustom"]; baskets?: Parameters<typeof AssetTable>[0]["baskets"];
   removeCustom: (chainId: number, token: Address) => void; retryCustom: (chainId: number, token: Address) => void;
 };
-export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, lang, busy, results, recovery, cardForm, overrides, setRpc, rescan, retryPending, open, custom, addCustom, removeCustom, retryCustom, baskets }: Props) {
+export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, lang, busy, results, accountPicker, recovery, cardForm, overrides, setRpc, rescan, retryPending, open, custom, addCustom, removeCustom, retryCustom, baskets }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const finished = results.filter(r => !["queued", "scanning"].includes(r.status)).length;
   const scanning = results.length > 0 && finished < results.length;
@@ -56,12 +56,13 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
   </div>;
   return <section className="panel diagnosis">
     <div className="diagnosis-canvas">
+    {accountPicker}
     {results.length > 0 ? <DiagnosisOverview heading={heading} results={results} custom={custom} pendingCount={pendingCount} lang={lang} showPending={showPending} /> : heading}
     <div className="diagnosis-relay">
     <LinkedAccounts compact account={account} wallet={wallet} picnicAccount={picnicAccount} identifying={identifying} results={results} busy={busy} lang={lang} />
     {(results.length > 0 || identifying) && !recovery && <div className="diagnosis-continue">
       <p className={`small${waitingToContinue || !continuation ? " muted" : ""}`}>{waitingToContinue ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
-        : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
+        : continuation ? t("A seguir: preparar o acesso, o destino e as taxas.", "Next: prepare access, destination and fees.")
         : t("Ainda não foi possível verificar uma conta compatível. Confira as pendências e tente atualizar a consulta em Avançado.", "A supported account could not be verified yet. Review the issues and retry the scan under Advanced.")}</p>
       <button className="next-step" aria-busy={waitingToContinue} disabled={waitingToContinue || !continuation} onClick={() => { if (continuation) open(continuation.result, continuation.step); }}>
         {waitingToContinue && <span className="scan-spinner" aria-hidden="true" />}

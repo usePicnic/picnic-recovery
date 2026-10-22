@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { formatUnits, type Address } from "viem";
 import { chains, chainById } from "../catalog/chains";
 import { assertChain, publicClient } from "../core/client";
@@ -13,6 +13,7 @@ import { gasFor, gasKey, gasSettled, gasStarted, isNew, isSelected, readiness, t
 
 type Lang = "pt" | "en";
 type Props = {
+  recovery?: ReactNode;
   lang: Lang; busy: boolean; account: string; wallet?: Address; results: NetworkDiagnosis[]; items: MigrationItem[];
   selection: Selection; select: (ids: string[], value: boolean) => void; overrides: RpcOverrides;
   destination: string; setDestination: (value: string) => void;
@@ -31,7 +32,7 @@ async function readGas(chainId: number, rpc: string, wallet: Address) {
   return { balance: await client.getBalance({ address: wallet, blockNumber: block }), block };
 }
 
-export function PrepareMigration({ lang, busy, account, wallet, results, items, selection, select, overrides, destination, setDestination, rescan, addCustom, retryCustom, run, next, connect, guardians = [], retryBasket }: Props) {
+export function PrepareMigration({ recovery, lang, busy, account, wallet, results, items, selection, select, overrides, destination, setDestination, rescan, addCustom, retryCustom, run, next, connect, guardians = [], retryBasket }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [gas, setGas] = useState<GasState>({});
@@ -98,6 +99,7 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
       <button className="text-button" disabled={busy} onClick={() => run(() => navigator.clipboard.writeText(wallet))}>{t("Copiar endereço", "Copy address")}</button>
     </div> : <p className="note">{t("Nenhuma carteira conectada. A conexão é feita no passo 0.", "No wallet connected. Connect it in step 0.")} <button className="text-button" disabled={busy} onClick={connect}>{t("Ir para a conexão →", "Go to connection →")}</button></p>}
 
+    {recovery}
     <div className="migration-toolbar" role="status" aria-live="polite">
       <p><strong>{chosen.length}</strong> {t(`de ${selectable.length} ativos selecionados`, `of ${selectable.length} assets selected`)} · <strong>{selectedChains.length}</strong> {t(selectedChains.length === 1 ? "rede" : "redes", selectedChains.length === 1 ? "network" : "networks")}</p>
       <div className="row">

@@ -1,7 +1,7 @@
-import { concat, encodeAbiParameters, encodeFunctionData, getCreate2Address, keccak256, parseAbi, parseAbiItem, stringToHex, zeroAddress, type Address, type Hex } from "viem";
+import { concat, encodeAbiParameters, encodeFunctionData, getAddress, getCreate2Address, keccak256, pad, parseAbi, parseAbiItem, stringToHex, zeroAddress, type Address, type Hex } from "viem";
 import deployments from "../catalog/account-discovery.json";
 import { same } from "./client";
-import { inspectAccount, assertSupportedSafe, SAFE_SINGLETONS } from "./inspect";
+import { inspectAccount, assertSupportedSafe, recoveryPeriod, SAFE_SINGLETONS } from "./inspect";
 import { inspectCard } from "./card";
 import { ReadPool } from "./reads";
 
@@ -28,6 +28,66 @@ export async function discoverPicnicAccount(pool: ReadPool, owner: Address) {
   assertSupportedSafe(snapshot);
   if (!snapshot.owners.some(address => same(address, owner))) return;
   return candidate;
+}
+
+// Events are address hints, never authority. Query indexed topics so this works
+// without Picnic/Candide APIs. An indexed address[] hashes its padded elements
+// without the ABI array offset or length; this flow supports one new owner.
+export const guardianAddedTopic = keccak256(stringToHex("GuardianAdded(address,address)"));
+export const recoveryFinalizedTopic = keccak256(stringToHex("RecoveryFinalized(address,address[],uint256,uint256)"));
+export const recoveredOwnerTopic = (owner: Address) => keccak256(pad(owner, { size: 32 }));
+export type RecoveryHandoff = { account: Address; chainId: number; newOwner: Address };
+// A successful recovery can finish on another network before Gnosis. A hint
+// retains the account identity, not its authority: prove current ownership on
+// that network again, and never apply it to a different connected wallet.
+export async function verifyRecoveryHandoff(pool: ReadPool, wallet: Address, handoff: RecoveryHandoff): Promise<Address | undefined> {
+  if (!same(wallet, handoff.newOwner)) return;
+  const snapshot = await pool.run(client => inspectAccount(client, handoff.account, handoff.chainId));
+  assertSupportedSafe(snapshot);
+  return snapshot.owners.some(owner => same(owner, wallet)) ? handoff.account : undefined;
+}
+export async function discoverRecoveryAccounts(pool: ReadPool, wallet: Address, chainId = 100): Promise<Address[]> {
+  const queries = [
+    { event: guardianAddedTopic, identity: pad(wallet, { size: 32 }), role: "guardian" },
+    { event: recoveryFinalizedTopic, identity: recoveredOwnerTopic(wallet), role: "owner" },
+  ] as const;
+  const candidates = new Map<string, { account: Address; module: Address; roles: Set<string> }>();
+  for (const query of queries) {
+    const logs = await pool.run(client => client.request({ method: "eth_getLogs", params: [{
+      fromBlock: "0x0", toBlock: "latest", topics: [query.event, null, query.identity],
+    }] }));
+    // Do not silently truncate a history scan or choose an arbitrary account.
+    if (logs.length >= 2000) throw new Error("Recovery discovery history limit reached; accounts could not be fully verified");
+    for (const log of logs) {
+      if (log.removed || log.topics[0]?.toLowerCase() !== query.event.toLowerCase()
+        || log.topics[2]?.toLowerCase() !== query.identity.toLowerCase() || !/^0x0{24}[a-f0-9]{40}$/i.test(log.topics[1] ?? "")) continue;
+      const account = getAddress(`0x${log.topics[1]!.slice(-40)}`), module = getAddress(log.address);
+      const key = `${account.toLowerCase()}:${module.toLowerCase()}`;
+      const candidate = candidates.get(key) ?? { account, module, roles: new Set<string>() };
+      candidate.roles.add(query.role); candidates.set(key, candidate);
+      if (candidates.size > 64) throw new Error("Recovery discovery candidate limit reached; accounts could not be fully verified");
+    }
+  }
+  const modules = new Map<string, boolean>();
+  const found = new Map<string, Address>();
+  for (const candidate of candidates.values()) {
+    pool.throwIfAborted();
+    const moduleKey = candidate.module.toLowerCase();
+    if (!modules.has(moduleKey)) {
+      const code = await pool.run(client => client.getCode({ address: candidate.module }));
+      modules.set(moduleKey, recoveryPeriod(code) !== undefined);
+    }
+    if (!modules.get(moduleKey)) continue;
+    const snapshot = await pool.run(client => inspectAccount(client, candidate.account, chainId));
+    assertSupportedSafe(snapshot);
+    // The emitting canonical module must still be enabled on this exact Safe.
+    const recovery = snapshot.recoveries.find(r => r.supported && same(r.module, candidate.module));
+    if (!recovery) continue;
+    const owner = candidate.roles.has("owner") && snapshot.owners.some(value => same(value, wallet));
+    const guardian = candidate.roles.has("guardian") && recovery.threshold > 0n && recovery.guardians.some(value => same(value, wallet));
+    if (owner || guardian) found.set(candidate.account.toLowerCase(), candidate.account);
+  }
+  return [...found.values()];
 }
 const transferEvent = parseAbiItem("event Transfer(address indexed from,address indexed to,uint256 value)");
 // Address hints come from the deterministic original card and transfer history.

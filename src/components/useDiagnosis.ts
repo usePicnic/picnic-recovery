@@ -1,3 +1,4 @@
+import type { AccountSnapshot } from "../core/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Address } from "viem";
 import { chains, chainById, defaultReadRpcs } from "../catalog/chains";
@@ -180,7 +181,16 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
     setCustomList(old => old.filter(c => key(c.chainId, c.address) !== id));
     setCustom(old => { const next = { ...old }; delete next[id]; return next; });
   }, []);
+  // Refresh recovery authority without re-indexing unchanged assets or baskets.
+  const updateSnapshot = useCallback((snapshot: AccountSnapshot) => {
+    if (!account || !same(snapshot.address, account) || context.current.account !== account || context.current.overrides !== overrides) return;
+    setResults(old => {
+      const current = old[snapshot.chainId];
+      if (!current || !same(current.account, snapshot.address) || current.status === "scanning" || current.status === "queued" || (current.snapshot && current.snapshot.block >= snapshot.block)) return old;
+      return { ...old, [snapshot.chainId]: { ...current, snapshot, nativeBalance: snapshot.nativeBalance } };
+    });
+  }, [account, overrides]);
   const customTokens = customList.map(c => custom[key(c.chainId, c.address)] ?? { ...c, status: "loading" as const })
     .filter(c => !c.token || (account && same(c.token.account, account)));
-  return { account, addCard, results: current, rescan, retryPending, customTokens, addCustomToken, removeCustomToken, retryCustomToken: verifyCustom };
+  return { account, addCard, updateSnapshot, results: current, rescan, retryPending, customTokens, addCustomToken, removeCustomToken, retryCustomToken: verifyCustom };
 }

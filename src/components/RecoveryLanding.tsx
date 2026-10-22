@@ -5,8 +5,8 @@ export function RecoveryLanding({ lang, start }: { lang: "pt" | "en"; start: () 
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   return <>
     <main className="recovery-landing">
-      <h1>{[t("Encontre.", "Find."), t("Prepare.", "Prepare."), t("Retire.", "Withdraw.")].map(word => <span key={word}>{word}</span>)}</h1>
-      <p className="landing-description">{t("Recupere seus ativos com a sua carteira, direto na blockchain. Sem depender dos servidores da Picnic.", "Recover your assets with your wallet, directly on-chain. Without relying on Picnic’s servers.")}</p>
+      <h1 className="recovery-promise">{[t("Mesmo sem a Picnic,", "Even without Picnic,"), t("seu acesso continua.", "your access continues.")].map(word => <span key={word}>{word}</span>)}</h1>
+      <p className="landing-description">{t("Recupere o acesso às suas contas e retire seus ativos direto na blockchain, com sua carteira ou guardian configurado.", "Recover access to your accounts and withdraw your assets directly on-chain, using your wallet or configured guardian.")}</p>
       <button type="button" className="landing-start" onClick={start}>{t("Começar", "Get started")}</button>
       <p className="landing-hint">{t("O diagnóstico não pede assinatura nem movimenta seus ativos.", "The scan requires no signature and does not move your assets.")}</p>
     </main>

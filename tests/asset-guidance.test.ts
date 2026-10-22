@@ -58,7 +58,7 @@ it("prioritizes access recovery over an already-controlled network holding asset
   const owned = { ...emptyDiagnosis(100, account), status: "complete" as const, snapshot, nativeBalance: 1n };
   const other = { ...owned, chainId: 1, snapshot: { ...snapshot, chainId: 1, version: "1.4.1", passkey: "detected" as const, owners: [token] } };
   const next = diagnosisNext([owned, other], account, []);
-  expect(next?.step).toBe(1);
+  expect(next?.step).toBe(2);
   expect(next?.result.chainId).toBe(1);
   expect(diagnosisNext([{ ...other, snapshot: { ...other.snapshot, passkey: "not-detected" } }], account, [])?.step).toBe(2);
 });
