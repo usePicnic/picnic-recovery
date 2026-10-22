@@ -252,7 +252,7 @@ export function App() {
     language: lang === "pt" ? "pt-BR" : "en-US", hideBalance: true,
     hideNoWalletCTA: true, hideRecentBadge: true, enforceSupportedChains: false, walletConnectName: "WalletConnect",
     disableSiweRedirect: true, embedGoogleFonts: false,
-  }}><div className="shell">
+  }}><div className={`shell${step <= 1 ? " diagnosis-shell" : ""}`}>
     <header>
       <a className="brand" href="./"><img className="brand-logo" src="./brand/picnic-wordmark.svg" alt="picnic" width="90" height="29" /><span className="brand-sub">recovery</span></a>
       <div className="header-actions"><Chip>{t("Direto na blockchain", "Directly on-chain")}</Chip>

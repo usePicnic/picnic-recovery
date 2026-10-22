@@ -4,6 +4,7 @@ import { chains, chainById } from "../catalog/chains";
 import { hasAssets, type NetworkDiagnosis, type TokenHolding } from "../core/diagnosis";
 import { validateRpc } from "../core/client";
 import { rpcFor, type CustomTokenState, type RpcOverrides } from "./useDiagnosis";
+import { DiagnosisOverview } from "./DiagnosisOverview";
 import { LinkedAccounts } from "./LinkedAccounts";
 import { AssetTable } from "./AssetTable";
 import { ChainLogo } from "./ChainLogo";
@@ -35,7 +36,20 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
   return <section className="panel diagnosis">
     <p className="eyebrow">{t("PASSO 0 / DIAGNÓSTICO AUTOMÁTICO", "STEP 0 / AUTOMATIC DIAGNOSIS")}</p>
     <h2>{t("Uma conta. Todas as redes.", "One account. Every network.")}</h2>
-    <LinkedAccounts account={account} wallet={wallet} picnicAccount={picnicAccount} identifying={identifying} results={results} busy={busy} lang={lang} />
+    <LinkedAccounts compact account={account} wallet={wallet} picnicAccount={picnicAccount} identifying={identifying} results={results} busy={busy} lang={lang} />
+    {results.length > 0 && <DiagnosisOverview results={results} custom={custom} pendingCount={pendingCount} lang={lang} />}
+    {recovery}
+    {(results.length > 0 || identifying) && !recovery && <div className="diagnosis-continue">
+      <p className="small muted">{waitingToContinue ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
+        : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
+        : t("Ainda não foi possível verificar uma conta compatível. Confira as pendências e tente atualizar a consulta em Avançado.", "A supported account could not be verified yet. Review the issues and retry the scan under Advanced.")}</p>
+      <button className="next-step" aria-busy={waitingToContinue} disabled={waitingToContinue || !continuation} onClick={() => { if (continuation) open(continuation.result, continuation.step); }}>
+        {waitingToContinue && <span className="scan-spinner" aria-hidden="true" />}
+        {waitingToContinue ? t("Aguarde a verificação…", "Checking your accounts…") : t("Próximo passo →", "Next step →")}
+      </button>
+    </div>}
+    {results.length > 0 && <details className="diagnosis-details">
+      <summary>{t("Ver ativos e pendências em detalhe", "View assets and issues in detail")}{pendingCount > 0 && <span className="tab-count">{pendingCount}</span>}</summary>
     <div className="diagnosis-tabs" role="tablist" aria-label={t("Resultado do diagnóstico", "Diagnosis results")}>
       {(["assets", "pending"] as const).map((id, i) => <button key={id} type="button" role="tab" id={`diagnosis-${id}-tab`} aria-controls={`diagnosis-${id}`} aria-selected={view === id} tabIndex={view === id ? 0 : -1}
         onClick={() => setView(id)} onKeyDown={event => {
@@ -67,17 +81,10 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
           <p className="small muted">{t("O saldo não pôde ser confirmado. Veja o motivo e tente novamente em Ativos → Gerenciar tokens adicionados.", "The balance could not be confirmed. See the reason and retry under Assets → Manage added tokens.")}</p></li>)}
       </ul> : <p className="empty-assets">{!results.length ? t("Conecte uma carteira para verificar as pendências.", "Connect a wallet to check for issues.") : loading ? t("As pendências aparecerão conforme a consulta avançar.", "Items needing attention will appear as the scan progresses.") : t("Nenhuma pendência identificada nas verificações realizadas.", "No issues identified in the completed checks.")}</p>}
     </div>
-    {recovery}
-    {(results.length > 0 || identifying) && !recovery && <div className="diagnosis-continue">
-      <p className="small muted">{waitingToContinue ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
-        : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
-        : t("Ainda não foi possível verificar uma conta compatível. Confira as pendências e tente atualizar a consulta em Avançado.", "A supported account could not be verified yet. Review the issues and retry the scan under Advanced.")}</p>
-      <button className="next-step" aria-busy={waitingToContinue} disabled={waitingToContinue || !continuation} onClick={() => { if (continuation) open(continuation.result, continuation.step); }}>
-        {waitingToContinue && <span className="scan-spinner" aria-hidden="true" />}
-        {waitingToContinue ? t("Aguarde a verificação…", "Checking your accounts…") : t("Próximo passo →", "Next step →")}
-      </button>
-    </div>}
+    </details>}
+    <details className="diagnosis-coverage"><summary>{t("O que esta consulta cobre", "What this scan covers")}</summary>
     <p className="note">{t("A consulta cobre o saldo nativo, tokens do catálogo local, tokens que você adicionar, investimentos conhecidos e propriedade de cestas. Não é um inventário universal: ativos fora do catálogo, conteúdo interno das cestas e contas com outro endereço podem exigir inspeção adicional. Resultados parciais nunca significam saldo zero.", "The scan covers native balances, local-catalogue tokens, tokens you add, known investments and basket ownership. Assets outside the catalogue, basket contents and other account addresses may need further inspection. Partial results never mean zero balance.")}</p>
+    </details>
     <details><summary>{t("Avançado: RPCs de consulta", "Advanced: read RPCs")}</summary>
       <button className="text-button" disabled={busy || loading || !results.length} onClick={() => rescan()}>{t("Atualizar diagnóstico", "Refresh diagnosis")}</button>
       <p className="small muted">{t("Sem RPC próprio, as consultas usam RPCs públicos e podem alternar entre eles após confirmar a rede (chain ID). Um RPC informado aqui é usado sozinho, também para transações. As URLs não são salvas nem exportadas.", "Without a custom RPC, reads use public RPCs and may switch between them after confirming the chain ID. An RPC entered here is used alone, also for transactions. URLs are not saved or exported.")}</p>

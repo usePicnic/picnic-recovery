@@ -241,3 +241,44 @@
 .tx-progress-indeterminate:after{content:'';position:absolute;inset:0 auto 0 0;width:35%;background:#9EE510;border-radius:inherit;animation:tx-reading 1.6s ease-in-out infinite}
 @keyframes tx-reading{from{transform:translateX(-100%)}to{transform:translateX(385%)}}
 @media(prefers-reduced-motion:reduce){.tx-progress-indeterminate:after{animation:none;left:32%}.tx-work .scan-spinner,.tx-inventory .scan-spinner{animation:none}}
+
+/* Step 0: the account, scan overview and next action precede long inventories. */
+.diagnosis-shell>header{height:64px}
+.diagnosis-shell .hero{display:grid;grid-template-columns:1fr 1.2fr;align-items:center;column-gap:32px;max-width:none;padding:18px 0}
+.diagnosis-shell .hero>.eyebrow,.diagnosis-shell .hero-foot{display:none}
+.diagnosis-shell .hero h1{font-size:30px;line-height:1.08;letter-spacing:-1px;margin:0}
+.diagnosis-shell .hero .intro{font-size:14px;line-height:1.5;max-width:530px}
+.diagnosis-shell .workspace{grid-template-columns:190px minmax(0,1fr);gap:24px;padding-top:14px}
+.diagnosis-shell .diagnosis{padding:20px 24px}
+.diagnosis-shell .diagnosis>.eyebrow{margin-bottom:6px}
+.diagnosis-shell .diagnosis>h2{font-size:24px;margin-bottom:14px}
+.account-overview{border:1px solid #D8DCD5;border-radius:8px;padding:12px 14px;margin-bottom:16px;background:#FAFBF8}
+.account-overview-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.account-overview-roles{display:flex;align-items:center;gap:10px 24px;flex-wrap:wrap;min-width:0}
+.account-overview-roles>span{display:flex;gap:5px;flex-direction:column;font-size:12px}
+.account-overview-roles strong{font-size:11px;font-weight:600;color:#5A5F58}
+.account-overview-top>button{font-size:12px;padding:8px 10px;flex-shrink:0}
+.account-overview-details{margin:8px 0 0;font-size:11px}.account-overview-details[open]{margin-top:12px}
+.account-overview-details .linked-account{padding:14px 0}
+.diagnosis-overview{margin:0 0 14px}
+.overview-stats{display:grid;grid-template-columns:1.2fr 1fr 1fr;margin:0 0 12px;gap:16px}
+.overview-stats dt{font-size:12px;color:#5A5F58;margin-bottom:3px}.overview-stats dd{margin:0;font-size:26px;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums}
+.overview-stats small{font-size:11px;font-weight:400;color:#5A5F58;margin-left:7px}.overview-attention dd{color:#9A1D1D}
+.overview-loading{margin-bottom:10px;font-size:11px}.overview-loading .asset-loading-label{margin-bottom:6px}
+.overview-networks{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
+.overview-networks li{display:flex;align-items:center;gap:5px;border:1px solid #D8DCD5;border-radius:5px;padding:4px 6px;font-size:10px;line-height:1.3}
+.overview-networks .reading{color:#5A5F58}.overview-networks .incomplete{color:#9A1D1D;border-color:#FFC7C7;background:#FFF5F5}.overview-networks .checked>span:last-child{color:#23684C}
+.overview-pending-note{font-size:12px;color:#9A1D1D;margin:8px 0 0;line-height:1.4}
+.diagnosis-shell .diagnosis-continue{margin:14px 0;padding:12px 0 0;gap:16px}.diagnosis-shell .diagnosis-continue .next-step{padding:12px 20px}
+.diagnosis-shell .diagnosis-details{margin:12px 0 0;border-top:1px solid #E4E7E1;padding-top:12px}
+.diagnosis-details>summary{font-weight:600;color:#211D1A;font-size:13px}.diagnosis-details>summary .tab-count{margin-left:8px}
+.diagnosis-shell .diagnosis-coverage,.diagnosis-shell .diagnosis>details:not(.diagnosis-details){margin:12px 0 0}
+.diagnosis-shell .linked-accounts>.connect-button{margin:0 22px 18px}
+@media(min-width:901px){.diagnosis-shell{padding:0 32px}}
+@media(max-width:900px){.diagnosis-shell .workspace{grid-template-columns:150px minmax(0,1fr);gap:16px}.account-overview-top{flex-wrap:wrap}.overview-stats{gap:10px}.overview-stats small{display:block;margin:3px 0 0}}
+@media(max-width:640px){
+ .diagnosis-shell .hero{grid-template-columns:1fr;gap:12px;padding:20px 0}.diagnosis-shell .hero h1{font-size:30px}.diagnosis-shell .hero .intro{font-size:13px}
+ .diagnosis-shell .workspace{display:block}.diagnosis-shell .steps{grid-template-columns:repeat(3,minmax(0,1fr))}.diagnosis-shell .steps small{display:none}
+ .diagnosis-shell aside>.source-link{display:none}.diagnosis-shell .diagnosis{padding:18px 16px}.account-overview-roles{gap:10px 16px}
+ .diagnosis-shell .diagnosis-continue{flex-direction:column;align-items:stretch}.overview-stats dt{font-size:11px}.overview-stats dd{font-size:24px}
+}

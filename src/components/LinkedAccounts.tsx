@@ -3,9 +3,10 @@ import { same } from "../core/client";
 import type { NetworkDiagnosis } from "../core/diagnosis";
 import { WalletButton } from "./WalletProvider";
 import { ChainLogo } from "./ChainLogo";
+import { shortAddress } from "./format";
 
 type Props = {
-  account: string; wallet?: Address; picnicAccount?: Address; identifying?: boolean;
+  compact?: boolean; account: string; wallet?: Address; picnicAccount?: Address; identifying?: boolean;
   results: NetworkDiagnosis[]; busy: boolean; lang: "pt" | "en";
 };
 function AccountIcon({ kind }: { kind: "wallet" | "safe" | "card" }) {
@@ -15,7 +16,7 @@ function AccountIcon({ kind }: { kind: "wallet" | "safe" | "card" }) {
       : <><rect x="2" y="5" width="20" height="14" rx="3" /><path d="M2 10h20M6 15h4" /></>}
   </svg>;
 }
-export function LinkedAccounts({ account, wallet, picnicAccount, identifying, results, busy, lang }: Props) {
+export function LinkedAccounts({ compact = false, account, wallet, picnicAccount, identifying, results, busy, lang }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const cards = [...new Map(results.flatMap(result => (result.linkedCards ?? []).filter(card => card.cards.some(delay =>
     delay.delayVersion === "v5" && delay.controllers.some(controller => same(controller, result.account))))
@@ -24,7 +25,7 @@ export function LinkedAccounts({ account, wallet, picnicAccount, identifying, re
   const isPicnic = !!picnicAccount && same(account, picnicAccount);
   const snapshot = results.find(result => same(result.account, account) && result.snapshot?.version !== "EOA" && result.snapshot)?.snapshot;
   const isCard = results.some(result => same(result.account, account) && result.cards.some(delay => delay.delayVersion === "v5"));
-  return <section className="linked-accounts" aria-label={t("Contas vinculadas", "Linked accounts")}>
+  const rows = <>
     <div className="linked-account signer-account">
       <span className="account-icon"><AccountIcon kind="wallet" /></span>
       <div className="linked-account-info">
@@ -33,7 +34,7 @@ export function LinkedAccounts({ account, wallet, picnicAccount, identifying, re
         <p className="small muted">{wallet ? t("Autoriza as operações das suas contas.", "Authorizes operations for your accounts.")
           : t("Vamos identificar suas contas e consultar todas as redes. Nenhuma assinatura é pedida nesta etapa.", "We will identify your accounts and check every network. No signature is requested at this step.")}</p>
       </div>
-      <WalletButton busy={busy} lang={lang} primary={!wallet} />
+      {!compact && <WalletButton busy={busy} lang={lang} primary={!wallet} />}
     </div>
     {identifying && <div className="linked-account identifying-account" role="status"><span className="scan-spinner" aria-hidden="true" />{t("Identificando sua Picnic Safe…", "Finding your Picnic Safe…")}</div>}
     {separate && <div className="linked-account" data-account-kind={isPicnic ? "picnic-safe" : isCard ? "card-safe" : "inspected"}>
@@ -55,5 +56,18 @@ export function LinkedAccounts({ account, wallet, picnicAccount, identifying, re
           : t("Guarda o saldo do cartão. Controlada pela conta em consulta.", "Holds the card balance. Controlled by the inspected account.")}</p>
       </div>
     </div>)}
+  </>;
+  if (!compact || !wallet) return <section className="linked-accounts" aria-label={t("Contas vinculadas", "Linked accounts")}>{rows}{compact && <WalletButton busy={busy} lang={lang} primary />}</section>;
+  return <section className="account-overview" aria-label={t("Contas vinculadas", "Linked accounts")}>
+    <div className="account-overview-top">
+      <div className="account-overview-roles">
+        <span><strong>Signer</strong><span className="mono" title={wallet}>{shortAddress(wallet)}</span></span>
+        {separate && <span><strong>{isPicnic ? "Picnic Safe" : isCard ? t("Safe do cartão", "Card Safe") : t("Conta em consulta", "Inspected account")}</strong><span className="mono" title={account}>{shortAddress(account)}</span></span>}
+        {cards.length > 0 && <span><strong>{t("Cartão", "Card")}</strong><span>{cards.length} Safe{cards.length > 1 ? "s" : ""}</span></span>}
+        {identifying && <span role="status"><span className="scan-spinner" aria-hidden="true" />{t("Identificando conta…", "Identifying account…")}</span>}
+      </div>
+      <WalletButton busy={busy} lang={lang} />
+    </div>
+    <details className="account-overview-details"><summary>{t("Ver endereços e vínculos", "View addresses and linked accounts")}</summary>{rows}</details>
   </section>;
 }

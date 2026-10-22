@@ -82,3 +82,36 @@ it("labels the signer, identified Picnic Safe and verified v5 card in one accoun
   expect(renderToStaticMarkup(createElement(LinkedAccounts,{...props,results:[unrelated]}))).not.toContain('data-account-kind="card-safe"');
   expect(renderToStaticMarkup(createElement(LinkedAccounts,{...props,picnicAccount:undefined}))).not.toContain('data-account-kind="picnic-safe"');
 });
+
+it("keeps the overview and next action before a large collapsed inventory", () => {
+  const result = { ...emptyDiagnosis(137, account), status: "complete" as const, snapshot: { ...snapshot, chainId: 137 }, nativeBalance: 1n,
+    basketCount: 149n, basketIds: Array.from({ length: 149 }, (_, i) => BigInt(i)) };
+  const html = renderToStaticMarkup(createElement(DiagnosisPanel, {
+    account, wallet: account, lang: "pt", busy: false, results: [result], overrides: {}, custom: [],
+    setRpc: () => {}, rescan: () => {}, retryPending: () => {}, open: () => {}, addCustom: async () => undefined, removeCustom: () => {}, retryCustom: () => {},
+  }));
+  expect(html).toContain('aria-label="Resumo do diagnóstico"');
+  expect(html).toContain('<dd>150<small>em 1 rede(s)</small>');
+  expect(html).toContain('<details class="diagnosis-details">');
+  expect(html.indexOf('class="diagnosis-continue"')).toBeLessThan(html.indexOf('class="diagnosis-details"'));
+  expect(html).toContain('<details class="account-overview-details">');
+  expect(html).toContain(account); // full address is still available in expanded details
+  expect(html).not.toContain('class="next-step" aria-busy="false" disabled');
+});
+
+it("keeps loading and incomplete reads visible in the overview while details are collapsed", () => {
+  const results = [
+    { ...emptyDiagnosis(100, account), status: "partial" as const, snapshot, totalTokens: 100, checkedTokens: 100, failedTokens: 2 },
+    { ...emptyDiagnosis(137, account), status: "scanning" as const, totalTokens: 200, checkedTokens: 50 },
+  ];
+  const html = renderToStaticMarkup(createElement(DiagnosisPanel, {
+    account, wallet: account, lang: "pt", busy: false, results, overrides: {}, custom: [],
+    setRpc: () => {}, rescan: () => {}, retryPending: () => {}, open: () => {}, addCustom: async () => undefined, removeCustom: () => {}, retryCustom: () => {},
+  }));
+  const overview = html.slice(0, html.indexOf('class="diagnosis-details"'));
+  expect(overview).toContain('Consulta incompleta');
+  expect(overview).toContain('Saldos não verificados são desconhecidos, não zero');
+  expect(overview).toContain('value="150" max="300"');
+  expect(overview).toContain('aria-busy="true" disabled=""');
+  expect(overview).toContain('Aguarde a verificação');
+});
