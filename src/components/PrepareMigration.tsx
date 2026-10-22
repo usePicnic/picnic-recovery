@@ -89,7 +89,7 @@ export function PrepareMigration({ lang, busy, account, wallet, results, items, 
   return <section className="panel prepare">
     <p className="eyebrow">{t("PASSO 1 / PREPARAR CARTEIRAS", "STEP 1 / PREPARE WALLETS")}</p>
     <h2>{t("Escolha as redes. Confira as taxas.", "Choose networks. Check the fees.")}</h2>
-    <p>{t("Todos os ativos encontrados, em todas as redes. Desmarque as redes que não quer migrar agora. Em cada rede selecionada, a carteira conectada assina e paga o gás na moeda nativa daquela rede.", "Every asset found, on every network. Untick the networks you do not want to migrate now. On each selected network, the connected wallet signs and pays gas in that network's native coin.")}</p>
+    <p>{t("Defina o destino e selecione as redes. Confira abaixo qual carteira paga as taxas em cada rede.", "Set the destination and select networks. Check below which wallet pays the fees on each network.")}</p>
 
     {wallet ? <div className="funding-card prepare-wallet">
       <div><span className="small muted">{t("Carteira que assina e paga as taxas", "Wallet signing and paying fees")}</span>

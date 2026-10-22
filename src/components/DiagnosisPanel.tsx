@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { type Address } from "viem";
 import { chains, chainById } from "../catalog/chains";
 import { hasAssets, type NetworkDiagnosis, type TokenHolding } from "../core/diagnosis";
@@ -33,11 +33,20 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
   const pendingCount = otherPending.length + (incomplete.length > 0 ? 1 : 0) + customErrors.length;
   const continuation = diagnosisNext(results, wallet, custom);
   const [view, setView] = useState<"assets" | "pending">("assets");
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const showPending = () => {
+    setView("pending");
+    const details = detailsRef.current;
+    if (!details) return;
+    details.open = true;
+    details.querySelector<HTMLButtonElement>("#diagnosis-pending-tab")?.focus({ preventScroll: true });
+    details.scrollIntoView({ block: "nearest" });
+  };
   const title = !wallet ? t("Uma conta. Todas as redes.", "One account. Every network.")
     : identifying ? t("Identificando suas contas…", "Finding your accounts…")
     : loading || !results.length ? t("Buscando seus ativos…", "Finding your assets…")
     : pendingCount ? t("Confira as pendências.", "Review the pending checks.")
-    : continuation ? t("Tudo verificado.", "Everything checked.") : t("Consulta concluída.", "Scan complete.");
+    : t("Diagnóstico concluído.", "Diagnosis complete.");
   const heading = <div className="diagnosis-heading">
     <p className="eyebrow">{t("PASSO 0 / DIAGNÓSTICO AUTOMÁTICO", "STEP 0 / AUTOMATIC DIAGNOSIS")}</p>
     <h2 data-screen-heading tabIndex={-1}>{title}</h2>
@@ -47,7 +56,7 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
   </div>;
   return <section className="panel diagnosis">
     <div className="diagnosis-canvas">
-    {results.length > 0 ? <DiagnosisOverview heading={heading} results={results} custom={custom} pendingCount={pendingCount} lang={lang} /> : heading}
+    {results.length > 0 ? <DiagnosisOverview heading={heading} results={results} custom={custom} pendingCount={pendingCount} lang={lang} showPending={showPending} /> : heading}
     <div className="diagnosis-relay">
     <LinkedAccounts compact account={account} wallet={wallet} picnicAccount={picnicAccount} identifying={identifying} results={results} busy={busy} lang={lang} />
     {(results.length > 0 || identifying) && !recovery && <div className="diagnosis-continue">
@@ -62,7 +71,7 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
     </div>
     {recovery}
     </div>
-    {results.length > 0 && <details className="diagnosis-details">
+    {results.length > 0 && <details ref={detailsRef} id="diagnosis-details" className="diagnosis-details">
       <summary>{t("Ver ativos e pendências em detalhe", "View assets and issues in detail")}{pendingCount > 0 && <span className="tab-count">{pendingCount}</span>}</summary>
     <div className="diagnosis-tabs" role="tablist" aria-label={t("Resultado do diagnóstico", "Diagnosis results")}>
       {(["assets", "pending"] as const).map((id, i) => <button key={id} type="button" role="tab" id={`diagnosis-${id}-tab`} aria-controls={`diagnosis-${id}`} aria-selected={view === id} tabIndex={view === id ? 0 : -1}
@@ -96,6 +105,7 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
       </ul> : <p className="empty-assets">{!results.length ? t("Conecte uma carteira para verificar as pendências.", "Connect a wallet to check for issues.") : loading ? t("As pendências aparecerão conforme a consulta avançar.", "Items needing attention will appear as the scan progresses.") : t("Nenhuma pendência identificada nas verificações realizadas.", "No issues identified in the completed checks.")}</p>}
     </div>
     </details>}
+    <details className="diagnosis-help"><summary>{t("Ajuda e opções avançadas", "Help and advanced options")}</summary>
     <div className="diagnosis-utilities">
     {cardForm}
     <details className="diagnosis-coverage diagnosis-utility"><summary>{t("O que esta consulta cobre", "What this scan covers")}</summary>
@@ -107,6 +117,7 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
       {chains.map(chain => <RpcField key={`${chain.id}:${rpcFor(chain.id, overrides)}`} label={chain.name} value={rpcFor(chain.id, overrides)} disabled={busy} apply={value => setRpc(chain.id, value)} lang={lang} />)}
     </details>
     </div>
+    </details>
   </section>;
 }
 

@@ -39,7 +39,6 @@ const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`;
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="field"><span>{label}</span>{children}</label>;
 }
-function Chip({ children }: { children: ReactNode }) { return <span className="chip">{children}</span>; }
 export function App() {
   const [started, setStarted] = useState(false);
   const [lang, setLang] = useState<"pt" | "en">("pt");
@@ -267,7 +266,7 @@ export function App() {
               <span className="step-number">{index}</span><span>{title}<small>{subtitle}</small></span>
             </button>)}
           </nav>}
-      <div className="header-actions">{started && <button className="quiet home-button" disabled={busy} onClick={() => setStarted(false)}>{t("Início", "Home")}</button>}<Chip>{t("Direto na blockchain", "Directly on-chain")}</Chip>
+      <div className="header-actions">{started && <button className="quiet home-button" disabled={busy} onClick={() => setStarted(false)}>{t("Início", "Home")}</button>}
         <button className="quiet" onClick={() => setLang(lang === "pt" ? "en" : "pt")} aria-label="Change language">{lang === "pt" ? "EN" : "PT"}</button>
       </div>
     </header>

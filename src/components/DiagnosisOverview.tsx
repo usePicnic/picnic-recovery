@@ -5,8 +5,8 @@ import { migrationItems } from "./migration";
 import { chainById } from "../catalog/chains";
 import { ChainLogo } from "./ChainLogo";
 
-export function DiagnosisOverview({ results, custom, pendingCount, lang, heading }: {
-  results: NetworkDiagnosis[]; custom: CustomTokenState[]; pendingCount: number; heading?: ReactNode; lang: "pt" | "en";
+export function DiagnosisOverview({ results, custom, pendingCount, lang, heading, showPending }: {
+  results: NetworkDiagnosis[]; custom: CustomTokenState[]; pendingCount: number; showPending?: () => void; heading?: ReactNode; lang: "pt" | "en";
 }) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const reading = (r: NetworkDiagnosis) => r.status === "queued" || r.status === "scanning";
@@ -21,7 +21,7 @@ export function DiagnosisOverview({ results, custom, pendingCount, lang, heading
     <dl className="overview-stats">
       <div><dt>{t("Ativos encontrados", "Assets found")}</dt><dd>{assets.length}<small>{t(`em ${assetNetworks} rede(s)`, `on ${assetNetworks} network(s)`)}</small></dd></div>
       <div><dt>{t("Redes consultadas", "Networks checked")}</dt><dd>{finished}<small>/ {results.length}</small></dd></div>
-      <div className={pendingCount ? "overview-attention" : ""}><dt>{t("Pendências", "Needs attention")}</dt><dd>{pendingCount}<small>{finished < results.length ? t("até agora", "so far") : t("para conferir", "to review")}</small></dd></div>
+      <div className={pendingCount ? "overview-attention" : ""}><dt>{t("Pendências", "Needs attention")}</dt><dd>{pendingCount > 0 && showPending ? <button type="button" className="overview-pending-action" onClick={showPending} aria-controls="diagnosis-details" aria-label={t(`Ver ${pendingCount} pendência(s)`, `Review ${pendingCount} pending check(s)`)}>{pendingCount}<small>{t("Ver pendências", "Review issues")}</small></button> : <>{pendingCount}<small>{finished < results.length ? t("até agora", "so far") : t("identificadas", "identified")}</small></>}</dd></div>
     </dl>
     </div>
     {finished < results.length && <div className="asset-loading overview-loading">
@@ -33,12 +33,13 @@ export function DiagnosisOverview({ results, custom, pendingCount, lang, heading
         const label = reading(r) ? t("Consultando", "Checking") : r.status === "complete" ? t("Consultada", "Checked") : t("Consulta incompleta", "Incomplete scan");
         const found = assets.filter(item => item.chainId === r.chainId).length;
         return <li key={r.chainId} className={reading(r) ? "reading" : r.status === "complete" ? "checked" : "incomplete"} title={`${chainById(r.chainId).name}: ${label}`}>
-          <span className="overview-network-head"><ChainLogo id={r.chainId} size={22} /><span aria-label={label}>{reading(r) ? "…" : r.status === "complete" ? "✓" : "!"}</span></span>
+          <ChainLogo id={r.chainId} size={20} />
           <span className="overview-network-name">{chainById(r.chainId).name}</span>
           <strong className="overview-network-count">{found || r.status === "complete" ? <>{found} <small>{t("ativos", "assets")}</small></> : <small>{reading(r) ? t("Consultando…", "Checking…") : t("Não verificado", "Unverified")}</small>}</strong>
+          <span className="overview-network-state" aria-label={label}>{reading(r) ? "…" : r.status === "complete" ? "✓" : "!"}</span>
         </li>;
       })}
     </ul>
-    {pendingCount > 0 && <p className="overview-pending-note">{t("Há verificações pendentes. Saldos não verificados são desconhecidos, não zero. Confira os detalhes abaixo.", "Some checks need attention. Unverified balances are unknown, not zero. Review the details below.")}</p>}
+    {pendingCount > 0 && <p className="overview-pending-note">{t("Saldos com verificação pendente são desconhecidos, não zero.", "Balances with pending checks are unknown, not zero.")}</p>}
   </section>;
 }

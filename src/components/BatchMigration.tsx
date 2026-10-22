@@ -217,8 +217,8 @@ export function BatchMigration(props: Props) {
   return <section className="panel batch" aria-labelledby="batch-title">
     <p className="eyebrow">{t("PASSO 2 / MOVER O DINHEIRO", "STEP 2 / MOVE FUNDS")}</p>
     <h2 id="batch-title">{t("Uma rede. Uma transação por vez.", "One network. One transaction at a time.")}</h2>
-    <p>{t("Agrupamos seus ativos em transações por rede. Redes com muitos ativos precisam de várias confirmações na carteira. Acompanhe cada transação abaixo e continue até terminar. Ativos bloqueados ficam separados e não contam como migrados.",
-      "We group your assets into transactions by network. Networks with many assets need several wallet confirmations. Follow each transaction below and continue until finished. Blocked assets stay separate and are never counted as migrated.")}</p>
+    <p>{t("Confirme cada transação na carteira e continue até concluir as redes selecionadas. Uma rede pode precisar de várias transações.",
+      "Confirm each transaction in your wallet and continue until the selected networks are complete. A network may need several transactions.")}</p>
     <div className="batch-destination">
       <div><span className="small muted">{t("Destino em todas as redes", "Destination on every network")}</span><p className="mono">{destination || "—"}</p></div>
     </div>
