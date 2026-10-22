@@ -79,7 +79,7 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
   const [cardResults, setCardResults] = useState<Record<string, { owner: Address; result: NetworkDiagnosis }>>({});
   const cardResultsRef = useRef(cardResults); cardResultsRef.current = cardResults;
   const launchCard = useCallback((card: Address, resume = false) => {
-    if (!account) return;
+    if (!account || context.current.account !== account || context.current.overrides !== overrides) return;
     const id = card.toLowerCase();
     const previous = cardResultsRef.current[id]?.result;
     if (resume && previous?.status === "complete" && previous.cards.some(d => d.delayVersion === "v5" && d.controllers.some(c => same(c, account)))) return;
@@ -105,7 +105,9 @@ export function useDiagnosis(rawAccount: string, overrides: RpcOverrides) {
     launchCard(card);
   }, [account, overrides, launchCard]);
   const launch = useCallback((id?: number, resume = false) => {
-    if (!account) return;
+    // Late callbacks (for example a receipt from the previous wallet) must not
+    // cancel the current wallet's controllers or restart the old scan.
+    if (!account || context.current.account !== account || context.current.overrides !== overrides) return;
     for (const chain of chains.filter(c => id === undefined || c.id === id)) {
       controllers.current.get(chain.id)?.abort();
       const controller = new AbortController(); controllers.current.set(chain.id, controller);

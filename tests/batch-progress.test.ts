@@ -87,14 +87,18 @@ describe("progress inside each pending transaction", () => {
     expect(html).toContain("0 em leitura · 1 na fila");
     expect(html).toContain("40/100 verificações em andamento");
     expect(html).toContain("não impede a próxima transação");
-    expect(html).toContain("scan-spinner");
+    expect(html).not.toContain("scan-spinner"); // the bar is the only loading indicator
   });
   it("shows live preparation stage only on the current transaction with no invented percentage", () => {
     const progress = migrationProgress({ history: [], items, remainingParts: [[items[0].id], [items[1].id]] });
     const html = renderToStaticMarkup(createElement(BatchTransactionProgress, { history: [], progress, items, chainId: 137, lang: "pt", active: true, awaitingReceipt: false, uncertain: false, stageLabel: "Simulando a transação…" }));
     expect(html.match(/class="tx-work"/g)).toHaveLength(1);
     expect(html).toContain('role="progressbar" aria-label="Simulando a transação…"');
+    expect(html).not.toContain('aria-label="Leitura das cestas da transação 1"');
+    expect(html).toContain('aria-label="Leitura das cestas da transação 2"');
     expect(html).not.toContain("aria-valuenow");
+    expect(html).not.toContain("scan-spinner");
+    expect(html).not.toContain("Em preparação"); // the live stage replaces the generic row status
     expect(html).toContain('value="0" max="2" aria-label="Transações confirmadas"');
   });
   it("keeps incomplete/failed reads below 100% and removes loading after the queue finishes", () => {

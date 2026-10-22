@@ -46,12 +46,14 @@ export function App() {
   const chain = chainById(chainId);
   const [rpcOverrides, setRpcOverrides] = useState<RpcOverrides>({});
   const rpc = rpcFor(chainId, rpcOverrides);
-  const [account, setAccount] = useState(() => readProgress().accounts.at(-1)?.address ?? "");
   const [snapshot, setSnapshot] = useState<AccountSnapshot>();
   const [progress, setProgress] = useState(readProgress);
   const connection = useAccount();
   const walletAddress = connection.address;
   const connectedAccount = useConnectedAccount(walletAddress, true, rpcOverrides);
+  // The read source follows the live connection, never a saved or previous wallet.
+  // useConnectedAccount only exposes discovery results for this signer.
+  const account = walletAddress ? connectedAccount?.account ?? walletAddress : "";
   const diagnosis = useDiagnosis(account, rpcOverrides);
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
   // Every known guardian of this source account (any network, connected or
@@ -141,12 +143,10 @@ export function App() {
     setCardDelay(undefined); setQueue([]); setStep(0);
   }
   useEffect(() => {
-    // Follow the connected address, including account switches.
-    if (!walletAddress || busy) return;
-    const target = connectedAccount?.account ?? walletAddress;
-    if (same(account, target)) return;
-    setAccount(target); resetInspection(); setError(""); setNotice("");
-  }, [walletAddress, connectedAccount?.account, busy, account]);
+    // Disconnects and signer changes also invalidate inspection while discovery
+    // resolves. Read hooks cancel the old account's work on the same render.
+    resetInspection(); scanController.current?.abort(); setError(""); setNotice("");
+  }, [account, walletAddress]);
   function openDiagnosis(result: NetworkDiagnosis, next: 1 | 2 | 3, assetTab?: string, holding?: TokenHolding) {
     if (!result.snapshot || !same(result.account, account)) return;
     resetInspection(); setChainId(result.chainId); setSnapshot(result.snapshot); setStep(next === 1 && result.snapshot.passkey !== "detected" ? 2 : next);
@@ -290,6 +290,7 @@ export function App() {
             setRpc={(id, value) => { resetInspection(); setRpcOverrides(old => ({ ...old, [id]: value })); }}
             rescan={diagnosis.rescan} retryPending={diagnosis.retryPending} open={openDiagnosis} custom={diagnosis.customTokens} addCustom={diagnosis.addCustomToken}
             removeCustom={diagnosis.removeCustomToken} retryCustom={diagnosis.retryCustomToken} baskets={baskets}
+            cardForm={step === 0 ? <CardAssetForm key={account} embedded lang={lang} disabled={busy || !diagnosis.account} add={diagnosis.addCard} /> : undefined}
             recovery={step === 1 && snapshot?.passkey === "detected" ? <RecoveryPanel snapshot={snapshot} wallet={walletAddress} lang={lang} busy={busy} owner={owner} setOwner={setOwner}
               networkIds={diagnosis.results.filter(r => r.snapshot?.passkey === "detected").map(r => r.chainId)}
               selectNetwork={id => { const result = diagnosis.results.find(r => r.chainId === id); if (result) openDiagnosis(result, 1); }}
@@ -328,13 +329,13 @@ export function App() {
               const result = diagnosis.results.find(r => r.chainId === target);
               if (result) openDiagnosis(result, 3, items.find(item => chosen.has(item.id) && item.chainId === target)?.tab);
             }} />}
-          {(step === 0 || step === 2) && <CardAssetForm key={account} lang={lang} disabled={busy || !diagnosis.account} add={diagnosis.addCard} />}
+          {step === 2 && <CardAssetForm key={account} lang={lang} disabled={busy || !diagnosis.account} add={diagnosis.addCard} />}
           {step === 3 && diagnosis.account && <BatchMigration key={`${account.toLowerCase()}:${destination.trim().toLowerCase()}`} transactions={progress.transactions} lang={lang} busy={busy} run={run} account={diagnosis.account} wallet={walletAddress} items={items} chosen={chosen}
             select={(ids, value) => { setActiveItem(undefined); setSelectionState(old => setSelected(forAccount(old, account), items, ids, value)); }}
             destination={destination} guardians={guardians} overrides={rpcOverrides} uncertain={uncertain} provider={provider} baskets={baskets}
             onSubmitted={record} onConfirmed={(id, hash) => { confirmed(hash); diagnosis.rescan(id); }}
             openItem={item => { const result = diagnosis.results.find(r => r.chainId === item.chainId); if (result) openAsset(item, result); }}
-            editSelection={() => { setActiveItem(undefined); goToStep(2); }} />}
+            />}
           {step === 3 && activeItem && <section className="panel compact active-asset"><div className="network-cell"><ChainLogo id={activeItem.chainId} /><ItemText item={activeItem} lang={lang} /></div><button className="text-button" disabled={busy} onClick={() => { setActiveItem(undefined); setReview(undefined); }}>{t("Fechar detalhes", "Close details")}</button></section>}
           {step === 3 && activeItem && (tab === "transfer" || tab === "card") && <section className="panel">
             <p className="eyebrow">{tab === "card" ? t("CARTÃO", "CARD") : t("SALDO E TOKENS", "BALANCE AND TOKENS")}</p><h2>{tab === "card" ? t("Retire o saldo do cartão.", "Withdraw card funds.") : t("Escolha o destino dos seus ativos.", "Choose where your assets go.")}</h2>

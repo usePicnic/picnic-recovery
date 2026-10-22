@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 
-export function CardAssetForm({ lang, disabled, add }: { lang: "pt" | "en"; disabled: boolean; add: (value: string) => Promise<void> }) {
+// Standalone panel in Prepare wallets; embedded among the diagnosis utilities.
+export function CardAssetForm({ lang, disabled, add, embedded = false }: { lang: "pt" | "en"; disabled: boolean; add: (value: string) => Promise<void>; embedded?: boolean }) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const [value, setValue] = useState(""), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   async function submit(event: FormEvent) {
@@ -9,7 +10,7 @@ export function CardAssetForm({ lang, disabled, add }: { lang: "pt" | "en"; disa
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
-  return <details className="panel compact custom-token-editor"><summary>{t("Não encontrou o saldo do cartão?", "Missing your card balance?")}</summary>
+  return <details className={`card-asset-form ${embedded ? "diagnosis-utility" : "panel compact custom-token-editor"}`}><summary>{t("Não encontrou o saldo do cartão?", "Missing your card balance?")}</summary>
     <p className="small muted">{t("Informe a Safe do cartão na Gnosis. O módulo v5 e o vínculo com a conta consultada serão verificados, e cada saldo aparecerá na lista de ativos.", "Enter the card Safe on Gnosis. Its v5 module and link to the inspected account will be verified, and each balance will appear in the asset list.")}</p>
     <form onSubmit={submit}><label className="field"><span>{t("Endereço da Safe do cartão", "Card Safe address")}</span><input disabled={disabled || busy} value={value} onChange={e => setValue(e.target.value)} placeholder="0x…" /></label>
       <button type="submit" disabled={disabled || busy || !value.trim()}>{busy ? t("Verificando cartão…", "Checking card…") : t("Adicionar saldos à lista", "Add balances to the list")}</button>

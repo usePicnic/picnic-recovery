@@ -12,13 +12,13 @@ import { diagnosisAction, diagnosisNext, needsAttention, withCustomHoldings } fr
 
 type Props = {
   account: string; wallet?: Address; picnicAccount?: Address; identifying?: boolean; lang: "pt" | "en"; busy: boolean;
-  results: NetworkDiagnosis[]; recovery?: ReactNode; overrides: RpcOverrides;
+  results: NetworkDiagnosis[]; recovery?: ReactNode; cardForm?: ReactNode; overrides: RpcOverrides;
   setRpc: (id: number, value: string) => void; rescan: (id?: number) => void; retryPending: (id: number) => void;
   open: (result: NetworkDiagnosis, step: 1 | 2 | 3, tab?: string, token?: TokenHolding) => void;
   custom: CustomTokenState[]; addCustom: Parameters<typeof AssetTable>[0]["addCustom"]; baskets?: Parameters<typeof AssetTable>[0]["baskets"];
   removeCustom: (chainId: number, token: Address) => void; retryCustom: (chainId: number, token: Address) => void;
 };
-export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, lang, busy, results, recovery, overrides, setRpc, rescan, retryPending, open, custom, addCustom, removeCustom, retryCustom, baskets }: Props) {
+export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, lang, busy, results, recovery, cardForm, overrides, setRpc, rescan, retryPending, open, custom, addCustom, removeCustom, retryCustom, baskets }: Props) {
   const t = (pt: string, en: string) => lang === "pt" ? pt : en;
   const finished = results.filter(r => !["queued", "scanning"].includes(r.status)).length;
   const scanning = results.length > 0 && finished < results.length;
@@ -40,7 +40,7 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
     {results.length > 0 && <DiagnosisOverview results={results} custom={custom} pendingCount={pendingCount} lang={lang} />}
     {recovery}
     {(results.length > 0 || identifying) && !recovery && <div className="diagnosis-continue">
-      <p className="small muted">{waitingToContinue ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
+      <p className={`small${waitingToContinue || !continuation ? " muted" : ""}`}>{waitingToContinue ? t("Aguarde a consulta terminar para continuar.", "Wait for the scan to finish before continuing.")
         : continuation ? continuation.step === 1 ? t("A seguir: recuperar ou confirmar o acesso à conta.", "Next: recover or confirm account access.") : t("A seguir: preparar o destino e o saldo para as taxas.", "Next: prepare the destination and fee balance.")
         : t("Ainda não foi possível verificar uma conta compatível. Confira as pendências e tente atualizar a consulta em Avançado.", "A supported account could not be verified yet. Review the issues and retry the scan under Advanced.")}</p>
       <button className="next-step" aria-busy={waitingToContinue} disabled={waitingToContinue || !continuation} onClick={() => { if (continuation) open(continuation.result, continuation.step); }}>
@@ -82,14 +82,17 @@ export function DiagnosisPanel({ account, wallet, picnicAccount, identifying, la
       </ul> : <p className="empty-assets">{!results.length ? t("Conecte uma carteira para verificar as pendências.", "Connect a wallet to check for issues.") : loading ? t("As pendências aparecerão conforme a consulta avançar.", "Items needing attention will appear as the scan progresses.") : t("Nenhuma pendência identificada nas verificações realizadas.", "No issues identified in the completed checks.")}</p>}
     </div>
     </details>}
-    <details className="diagnosis-coverage"><summary>{t("O que esta consulta cobre", "What this scan covers")}</summary>
+    <div className="diagnosis-utilities">
+    {cardForm}
+    <details className="diagnosis-coverage diagnosis-utility"><summary>{t("O que esta consulta cobre", "What this scan covers")}</summary>
     <p className="note">{t("A consulta cobre o saldo nativo, tokens do catálogo local, tokens que você adicionar, investimentos conhecidos e propriedade de cestas. Não é um inventário universal: ativos fora do catálogo, conteúdo interno das cestas e contas com outro endereço podem exigir inspeção adicional. Resultados parciais nunca significam saldo zero.", "The scan covers native balances, local-catalogue tokens, tokens you add, known investments and basket ownership. Assets outside the catalogue, basket contents and other account addresses may need further inspection. Partial results never mean zero balance.")}</p>
     </details>
-    <details><summary>{t("Avançado: RPCs de consulta", "Advanced: read RPCs")}</summary>
+    <details className="diagnosis-utility"><summary>{t("Avançado: RPCs de consulta", "Advanced: read RPCs")}</summary>
       <button className="text-button" disabled={busy || loading || !results.length} onClick={() => rescan()}>{t("Atualizar diagnóstico", "Refresh diagnosis")}</button>
       <p className="small muted">{t("Sem RPC próprio, as consultas usam RPCs públicos e podem alternar entre eles após confirmar a rede (chain ID). Um RPC informado aqui é usado sozinho, também para transações. As URLs não são salvas nem exportadas.", "Without a custom RPC, reads use public RPCs and may switch between them after confirming the chain ID. An RPC entered here is used alone, also for transactions. URLs are not saved or exported.")}</p>
       {chains.map(chain => <RpcField key={`${chain.id}:${rpcFor(chain.id, overrides)}`} label={chain.name} value={rpcFor(chain.id, overrides)} disabled={busy} apply={value => setRpc(chain.id, value)} lang={lang} />)}
     </details>
+    </div>
   </section>;
 }
 

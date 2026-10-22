@@ -31,7 +31,7 @@ type Props = {
   account: Address; wallet?: Address; items: MigrationItem[]; chosen: ReadonlySet<string>; destination: string;
   guardians: readonly Address[]; overrides: RpcOverrides; uncertain: boolean; provider: () => Promise<EIP1193Provider>;
   baskets: BasketContentsState; onSubmitted: (record: SubmittedRecord) => void; onConfirmed: (chainId: number, hash: Hex) => void;
-  select?: (ids: string[], value: boolean) => void; openItem: (item: MigrationItem) => void; editSelection: () => void;
+  select?: (ids: string[], value: boolean) => void; openItem: (item: MigrationItem) => void;
 };
 type Stage = "reading" | "screening" | "wallet" | "network" | "validation" | "simulation" | "signature" | "transaction" | "receipt";
 type ChainState = {
@@ -221,7 +221,6 @@ export function BatchMigration(props: Props) {
       "We group your assets into transactions by network. Networks with many assets need several wallet confirmations. Follow each transaction below and continue until finished. Blocked assets stay separate and are never counted as migrated.")}</p>
     <div className="batch-destination">
       <div><span className="small muted">{t("Destino em todas as redes", "Destination on every network")}</span><p className="mono">{destination || "—"}</p></div>
-      <button type="button" className="text-button" disabled={busy} onClick={props.editSelection}>{t("Editar seleção ou destino", "Edit selection or destination")}</button>
     </div>
     {destinationProblem && <DestinationMessage id="batch-destination-error" problem={destinationProblem} lang={lang} />}
     {!networks.length && <p className="empty-assets">{t("Nenhum ativo selecionado. Volte a Preparar carteiras para escolher o que migrar.", "No assets selected. Go back to Prepare wallets to choose what to move.")}</p>}
@@ -253,7 +252,7 @@ export function BatchMigration(props: Props) {
               <span className="network-inventory-title"><strong id={`batch-${chainId}`}>{chain.name}</strong><small>{t(`${own.length} de ${available.length} ativos selecionados`, `${own.length} of ${available.length} assets selected`)}</small></span>
               {available.length > 0 && <span className="network-inventory-chevron" aria-hidden="true">{expandedNetworks[chainId] ? "▾" : "▸"}</span>}
             </button>
-            <span className={`status-pill ${completed ? "ok" : s.status === "error" ? "blocked" : working ? "loading" : "idle"}`}>{working && <span className="scan-spinner" aria-hidden="true" />}{label}</span>
+            <span className={`status-pill ${completed ? "ok" : s.status === "error" ? "blocked" : working ? "loading" : "idle"}`}>{label}</span>
           </div>
           <NetworkAssetInventory id={`network-inventory-${chainId}`} name={chain.name} items={available} expanded={!!expandedNetworks[chainId]} lang={lang} retry={id => baskets.retry([id])} />
           {s.error && <p className="small table-error" role="alert">{s.error}</p>}
@@ -266,7 +265,7 @@ export function BatchMigration(props: Props) {
           {(!s.done || progress.blocked.length > 0) && (own.length > 0 || s.action) && <div className="batch-actions">
             {(own.length > 0 || s.action) && <button type="button" className={isCurrent ? "next-step" : "outline"}
               disabled={busy || anyReading || !!destinationProblem || uncertain}
-              onClick={() => void migrate(chainId)}>{working ? <><span className="scan-spinner" aria-hidden="true" /> {s.stage ? stageText[s.stage] : t("Preparando…", "Preparing…")}</>
+              onClick={() => void migrate(chainId)}>{working ? s.stage ? stageText[s.stage] : t("Preparando…", "Preparing…")
                 : s.done ? t("Verificar ativos bloqueados novamente", "Check blocked assets again") : progress.totalTransactions > 0 ? `${sent > 0 ? t("Continuar", "Continue") : t("Iniciar", "Start")} · ${transactionLabel.toLowerCase()} →` : t(`Migrar ${chain.name} →`, `Migrate ${chain.name} →`)}</button>}
             {s.snapshot && s.snapshot.threshold > 1n && s.action && <button type="button" className="outline" disabled={busy || uncertain || !!destinationProblem}
               onClick={() => void migrate(chainId, true)}>{t("Registrar minha aprovação", "Register my approval")}</button>}

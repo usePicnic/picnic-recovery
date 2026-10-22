@@ -63,7 +63,7 @@ describe("batch review presentation", () => {
     const items: MigrationItem[] = [{ id: "137:token:usdc", kind: "token", chainId: 137, symbol: "USDC", name: "USD Coin", tab: "transfer", order: 0, selectable: true, amount: { value: 1n, decimals: 6 } }];
     const html = renderToStaticMarkup(createElement(BatchMigration, { lang: "en", busy: false, run: async () => {}, account: safe, wallet: owner, items, chosen: new Set(["137:token:usdc"]),
       destination: guardian, guardians: [guardian], overrides: {}, uncertain: false, provider: async () => { throw new Error("no"); },
-      baskets: { contents: {}, retry: () => {}, prioritize: () => {}, refresh: () => {} }, onSubmitted: () => {}, onConfirmed: () => {}, openItem: () => {}, editSelection: () => {} }));
+      baskets: { contents: {}, retry: () => {}, prioritize: () => {}, refresh: () => {} }, onSubmitted: () => {}, onConfirmed: () => {}, openItem: () => {} }));
     expect(html).toContain("recovery guardian of this account");
     expect(html).toMatch(/<button type="button" class="next-step" disabled="">/);
     expect(html).not.toMatch(/everything happens or nothing changes/);
@@ -77,7 +77,7 @@ describe("network selection in Move funds", () => {
       basketId: 712n, contents: { nftId: 712n, owner: safe, status, checked: 0, total: 100, failed: 0, holdings: [] } }];
     const html = renderToStaticMarkup(createElement(BatchMigration, { lang: "en", busy: false, run: async () => {}, account: safe, wallet: owner, items, chosen: new Set([items[0].id]),
       destination: dest, guardians: [], overrides: {}, uncertain: false, provider: async () => { throw new Error("no"); }, select: () => {},
-      baskets: { contents: {}, retry: () => {}, prioritize: () => {}, refresh: () => {} }, onSubmitted: () => {}, onConfirmed: () => {}, openItem: () => {}, editSelection: () => {} }));
+      baskets: { contents: {}, retry: () => {}, prioritize: () => {}, refresh: () => {} }, onSubmitted: () => {}, onConfirmed: () => {}, openItem: () => {} }));
     expect(html).toContain('<button type="button" class="next-step">Start · transaction 1 of 1 →</button>');
     expect(html).not.toContain("to build the batch");
   });
@@ -85,7 +85,7 @@ describe("network selection in Move funds", () => {
     const items: MigrationItem[] = [100, 137].map(chainId => ({ id: `${chainId}:native`, kind: "native", chainId, symbol: "NATIVE", name: "Native coin", tab: "transfer", order: 0, selectable: true, amount: { value: 1n, decimals: 18 } }));
     const html = renderToStaticMarkup(createElement(BatchMigration, { lang: "en", busy: false, run: async () => {}, account: safe, wallet: owner, items, chosen: new Set(["137:native"]),
       destination: dest, guardians: [], overrides: {}, uncertain: false, provider: async () => { throw new Error("no"); }, select: () => {},
-      baskets: { contents: {}, retry: () => {}, prioritize: () => {}, refresh: () => {} }, onSubmitted: () => {}, onConfirmed: () => {}, openItem: () => {}, editSelection: () => {} }));
+      baskets: { contents: {}, retry: () => {}, prioritize: () => {}, refresh: () => {} }, onSubmitted: () => {}, onConfirmed: () => {}, openItem: () => {} }));
     expect(html.match(/type="checkbox"/g)).toHaveLength(2);
     expect(html.match(/class="network-inventory-toggle" aria-expanded="false"/g)).toHaveLength(2);
     expect(html).toContain('aria-controls="network-inventory-100"');
