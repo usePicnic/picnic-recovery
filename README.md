@@ -60,6 +60,8 @@ MIT for original application code. Test bytecode retains its upstream licenses. 
 
 ### WalletConnect QR pairing
 
+The selector shows named extensions first, WalletConnect next, and “Outra carteira” / “Other wallet” last. `tooling/connectkitPresentation.ts` adapts only ConnectKit 1.9.2 presentation during Vite builds and development; an upstream change fails the build for review. Provider selection and connection logic remain in ConnectKit/Wagmi.
+
 Choose **Connect wallet → WalletConnect**, then scan the QR code in a compatible mobile wallet. The connector uses Picnic Recovery's own public WalletConnect project ID, with optional SDK telemetry disabled. Pairing requires the WalletConnect relay; browser extensions and blockchain reads remain independent of it. The SDK stores session/pairing data locally; disconnect from the wallet selector to end the session. Recovery never receives private keys.
 
 Self-hosted builds can set `VITE_WALLETCONNECT_PROJECT_ID` to their own Reown/WalletConnect project ID before `npm run build` (see `.env.example`). This identifier is public and bundled into the frontend. Register the deployment origin in that project's allowed origins when using an allowlist. Wallet metadata uses the current deployment origin.
